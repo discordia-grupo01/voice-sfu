@@ -1,5 +1,6 @@
 services:
   sfu:
+    profiles: ["prototype"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -20,9 +21,24 @@ services:
     environment:
       MIX_ENV: dev
       PORT: 4000
+      LIVEKIT_URL: ws://localhost:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: devsecret
+      VOICE_AUTHZ_MODE: allow_authenticated
+      JWT_SECRET: ${JWT_SECRET:-}
     depends_on:
-      sfu:
+      livekit:
         condition: service_started
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "51000-51100:51000-51100/udp"
 
   rabbitmq:
     image: rabbitmq:3-management

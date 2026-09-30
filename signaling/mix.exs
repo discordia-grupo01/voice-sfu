@@ -23,7 +23,8 @@ defmodule DiscordiaSignaling.MixProject do
       {:phoenix, "~> 1.7"},
       {:phoenix_pubsub, "~> 2.1"},
       {:plug_cowboy, "~> 2.7"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:jose, "~> 1.11"}
     ]
   end
 end

@@ -2,10 +2,11 @@
 
 Este directorio contiene los dos módulos del apartado de voz:
 
-- `voice-sfu/` raíz: módulo Go que ejecuta el SFU con Pion WebRTC, RTP/RTCP y forwarding de audio.
-- `signaling/`: módulo Elixir/Phoenix que expone salas, canales y el transporte de signaling.
+- `voice-sfu/` raíz: prototipo educativo de SFU propio con Go/Pion, RTP/RTCP y forwarding de audio.
+- `signaling/`: módulo Elixir/Phoenix que autentica, autoriza salas y emite tokens de LiveKit.
+- `livekit.yaml`: configuración local del media server LiveKit.
 
-Phoenix es dueño del estado de signaling. Go es dueño de las conexiones WebRTC y del media plane. La comunicación interna entre ambos está representada por `DiscordiaSignaling.Voice.SfuBridge`, pero todavía no tiene transporte implementado.
+LiveKit es el media plane de la primera versión funcional. Phoenix es dueño del acceso a salas y entrega tokens. El Go SFU se conserva como prototipo alternativo bajo el perfil Docker `prototype`.
 
 ## Desarrollo local
 
@@ -30,7 +31,11 @@ mix deps.get
 mix phx.server
 ```
 
-Phoenix escucha en `http://localhost:4000`, expone `GET /livez` y usa `/socket` con topics `voice:*`.
+Phoenix escucha en `http://localhost:4000`, expone `GET /livez` y `GET /readyz`. El endpoint autenticado `POST /api/voice/token` recibe `{ "room_name": "..." }` y devuelve un token LiveKit.
+
+### LiveKit
+
+LiveKit escucha en `ws://localhost:7880` y publica media UDP en el rango `51000-51100`. El cliente debe conectarse usando un SDK de LiveKit con el token emitido por Phoenix.
 
 ### Docker Compose
 
@@ -39,13 +44,15 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Esto levanta ambos módulos, RabbitMQ y PostgreSQL. PostgreSQL está reservado para la evolución del estado persistente; el SFU actual usa memoria y `/readyz` todavía no comprueba una base de datos.
+Esto levanta Phoenix, LiveKit, RabbitMQ y PostgreSQL. El Go SFU propio no se inicia por defecto; para probarlo se usa `docker compose --profile prototype up --build sfu`.
 
 ## Contrato actual
 
 El mensaje de signaling Go usa `type`, `room_id`, `peer_id` y `data`. Los tipos actuales son `join`, `leave`, `offer`, `answer` y `candidate`; la forma exacta está en `internal/model/message.go`.
 
 Los eventos publicados por el SFU son `voice.participant.joined`, `voice.participant.left` y `voice.channel.empty`. Sus payloads están en `internal/events/events-contract/voice.go`.
+
+El contrato de acceso a LiveKit contiene `identity`, `room_name`, `token` y `url`. Phoenix firma el JWT con `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET`.
 
 ## Estructura
 
@@ -58,13 +65,15 @@ voice-sfu/
 │   ├── config/               configuración Phoenix
 │   └── lib/                  OTP application, Endpoint, Socket y Channel
 ├── docker-compose.yml
-├── Dockerfile                imagen del SFU
-└── signaling/Dockerfile      imagen del signaling
+├── Dockerfile                imagen del SFU prototipo
+├── livekit.yaml              configuración del media server local
+└── signaling/Dockerfile      imagen del servicio de control
 ```
 
 ## Advertencias
 
-- El signaling Phoenix no autentica usuarios todavía.
-- `SfuBridge` devuelve `:not_configured`; antes de elegir gRPC o TCP hay que definir autenticación interna, framing, retries y backpressure.
-- El SFU mantiene las salas en memoria y no está preparado para múltiples réplicas.
+- En desarrollo `VOICE_AUTHZ_MODE=allow_authenticated` permite cualquier usuario autenticado; producción debe conectar la autorización real de membresía del servicio de servidores.
+- `SfuBridge` se conserva como prototipo de integración con el SFU Go, pero no participa del flujo LiveKit.
+- LiveKit es el servidor de media; no enviar RTP por Phoenix, RabbitMQ ni el endpoint de tokens.
+- El SFU Go mantiene las salas en memoria y no está preparado para múltiples réplicas.
 - No mover lógica WebRTC, RTP o RTCP al módulo Phoenix.
