@@ -19,3 +19,14 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
 
 - `PORT`: HTTP port, defaults to `4000`.
 - `SECRET_KEY_BASE`: required when `MIX_ENV=prod`.
+
+## Tests y cobertura
+
+```bash
+mix test --cover
+```
+
+La suite esta organizada en `test/discordia_signaling/voice` para dominio y
+`test/discordia_signaling_web` para Plug, controllers, Channels y rutas. El
+comando muestra el porcentaje por modulo y falla si la cobertura total baja de
+70%, configurado en `mix.exs`.

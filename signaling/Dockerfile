@@ -9,6 +9,7 @@ COPY config ./config
 RUN mix deps.get --only prod
 
 COPY lib ./lib
+COPY test ./test
 RUN mix compile
 
 EXPOSE 4000
