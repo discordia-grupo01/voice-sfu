@@ -1,4 +1,4 @@
-.PHONY: run test build migrate
+.PHONY: run test build migrate format
 
 run:
 	go run ./cmd/api
@@ -11,3 +11,6 @@ build:
 
 migrate:
 	@echo "TODO: correr migraciones (ej. golang-migrate)"
+
+format:
+	gofmt -w .
