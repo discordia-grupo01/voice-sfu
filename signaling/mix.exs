@@ -15,7 +15,7 @@ defmodule DiscordiaSignaling.MixProject do
   def application do
     [
       mod: {DiscordiaSignaling.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:inets, :logger, :runtime_tools]
     ]
   end
 

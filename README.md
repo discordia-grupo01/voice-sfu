@@ -31,7 +31,7 @@ mix deps.get
 mix phx.server
 ```
 
-Phoenix escucha en `http://localhost:4000`, expone `GET /livez` y `GET /readyz`. El endpoint autenticado `POST /api/voice/token` recibe `{ "room_name": "..." }` y devuelve un token LiveKit.
+Phoenix escucha en `http://localhost:4000`, expone `GET /livez` y `GET /readyz`. El endpoint autenticado `POST /api/voice/token` recibe `{ "channel_id": "..." }`, valida el acceso en `servers` y devuelve un token para la sala derivada `voice:<channel_id>`.
 
 ### LiveKit
 
@@ -52,7 +52,7 @@ El mensaje de signaling Go usa `type`, `room_id`, `peer_id` y `data`. Los tipos 
 
 Los eventos publicados por el SFU son `voice.participant.joined`, `voice.participant.left` y `voice.channel.empty`. Sus payloads están en `internal/events/events-contract/voice.go`.
 
-El contrato de acceso a LiveKit contiene `identity`, `room_name`, `token` y `url`. Phoenix firma el JWT con `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET`.
+El contrato de acceso a LiveKit contiene `identity`, `room_name`, `token` y `url`. `room_name` no es entrada del cliente: Phoenix lo deriva del canal autorizado y firma el JWT con `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET`.
 
 ## Estructura
 

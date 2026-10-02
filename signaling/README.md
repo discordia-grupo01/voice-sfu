@@ -19,6 +19,12 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
 
 - `PORT`: HTTP port, defaults to `4000`.
 - `SECRET_KEY_BASE`: required when `MIX_ENV=prod`.
+- `SERVERS_URL`: base URL of the servers service used for voice authorization.
+- `VOICE_AUTHZ_MODE`: `servers_api` for membership and `VIEW_CHANNELS` checks; `allow_authenticated` is local-only.
+
+`POST /api/voice/token` accepts only `{ "channel_id": "..." }`. Phoenix derives
+the LiveKit room name as `voice:<channel_id>` and forwards the validated JWT to
+`GET /v1/channels/{channelId}/voice-access` in `servers`.
 
 ## Tests y cobertura
 

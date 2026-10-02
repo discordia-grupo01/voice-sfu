@@ -4,10 +4,11 @@ defmodule DiscordiaSignalingWeb.VoiceTokenController do
   alias DiscordiaSignaling.Voice.LiveKitToken
   alias DiscordiaSignaling.Voice.VoiceAccess
 
-  def create(conn, %{"room_name" => room_name}) when is_binary(room_name) do
+  def create(conn, %{"channel_id" => channel_id}) when is_binary(channel_id) do
     user_id = conn.assigns.current_user_id
+    authorization_header = List.first(Plug.Conn.get_req_header(conn, "authorization"))
 
-    with :ok <- VoiceAccess.authorize(user_id, room_name),
+    with {:ok, room_name} <- VoiceAccess.authorize(user_id, channel_id, authorization_header),
          {:ok, token} <- LiveKitToken.issue(user_id, room_name) do
       json(conn, %{
         identity: user_id,
@@ -29,14 +30,14 @@ defmodule DiscordiaSignalingWeb.VoiceTokenController do
       {:error, :invalid_input} ->
         conn
         |> Plug.Conn.put_status(400)
-        |> json(%{error: "invalid_room_name"})
+        |> json(%{error: "invalid_channel_id"})
     end
   end
 
   def create(conn, _params) do
     conn
     |> Plug.Conn.put_status(400)
-    |> json(%{error: "room_name_required"})
+    |> json(%{error: "channel_id_required"})
   end
 
   defp livekit_url do
