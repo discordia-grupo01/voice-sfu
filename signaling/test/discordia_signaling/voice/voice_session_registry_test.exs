@@ -1,0 +1,90 @@
+defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
+  use ExUnit.Case, async: false
+
+  alias DiscordiaSignaling.Voice.VoiceSessionRegistry
+
+  setup do
+    VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
+    VoiceSessionRegistry.leave("registry-user-1", "voice:room-2")
+    previous_result = Application.get_env(:discordia_signaling, :test_room_service_result)
+    Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
+
+    on_exit(fn ->
+      if previous_result do
+        Application.put_env(:discordia_signaling, :test_room_service_result, previous_result)
+      else
+        Application.delete_env(:discordia_signaling, :test_room_service_result)
+      end
+    end)
+
+    :ok
+  end
+
+  test "replaces the previous room for an identity" do
+    assert {:ok, nil} = VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
+
+    assert {:ok, "voice:room-1"} =
+             VoiceSessionRegistry.switch("registry-user-1", "voice:room-2")
+
+    assert VoiceSessionRegistry.active_room("registry-user-1") == "voice:room-2"
+  end
+
+  test "does not remove a newer room when an older room leaves" do
+    VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
+    VoiceSessionRegistry.switch("registry-user-1", "voice:room-2")
+
+    assert :ok = VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
+    assert VoiceSessionRegistry.active_room("registry-user-1") == "voice:room-2"
+  end
+
+  test "is idempotent when leaving an absent room" do
+    assert :ok = VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
+    assert :ok = VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
+    assert VoiceSessionRegistry.active_room("registry-user-1") == nil
+  end
+
+  test "leaving the active room removes it from the registry" do
+    VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
+
+    assert :ok = VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
+    assert VoiceSessionRegistry.active_room("registry-user-1") == nil
+  end
+
+  test "does not disconnect when requesting the same room" do
+    VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
+    Application.put_env(:discordia_signaling, :test_room_service_result, {:error, :unavailable})
+
+    assert {:ok, "voice:room-1"} =
+             VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
+  end
+
+  test "keeps the previous room when switching cannot disconnect it" do
+    VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
+    Application.put_env(:discordia_signaling, :test_room_service_result, {:error, :unavailable})
+
+    assert {:error, :unavailable} =
+             VoiceSessionRegistry.switch("registry-user-1", "voice:room-2")
+
+    assert VoiceSessionRegistry.active_room("registry-user-1") == "voice:room-1"
+  end
+
+  test "treats an already absent LiveKit participant as a successful switch" do
+    VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
+    Application.put_env(:discordia_signaling, :test_room_service_result, {:error, :not_found})
+
+    assert {:ok, "voice:room-1"} =
+             VoiceSessionRegistry.switch("registry-user-1", "voice:room-2")
+
+    assert VoiceSessionRegistry.active_room("registry-user-1") == "voice:room-2"
+  end
+
+  test "keeps the active room when leaving fails" do
+    VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
+    Application.put_env(:discordia_signaling, :test_room_service_result, {:error, :unavailable})
+
+    assert {:error, :unavailable} =
+             VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
+
+    assert VoiceSessionRegistry.active_room("registry-user-1") == "voice:room-1"
+  end
+end
