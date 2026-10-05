@@ -33,5 +33,6 @@ defmodule DiscordiaSignalingWeb.Router do
     pipe_through(:authenticated_api)
 
     post("/voice/token", VoiceTokenController, :create)
+    delete("/voice/session", VoiceSessionController, :delete)
   end
 end

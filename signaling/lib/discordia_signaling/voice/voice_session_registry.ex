@@ -9,12 +9,13 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     GenServer.start_link(__MODULE__, %{}, Keyword.put_new(opts, :name, __MODULE__))
   end
 
-  @spec switch(String.t(), String.t()) :: {:ok, String.t() | nil}
+  @spec switch(String.t(), String.t()) ::
+          {:ok, String.t() | nil} | {:error, atom()}
   def switch(identity, room_name) when is_binary(identity) and is_binary(room_name) do
     GenServer.call(__MODULE__, {:switch, identity, room_name})
   end
 
-  @spec leave(String.t(), String.t()) :: :ok
+  @spec leave(String.t(), String.t()) :: :ok | {:error, atom()}
   def leave(identity, room_name) when is_binary(identity) and is_binary(room_name) do
     GenServer.call(__MODULE__, {:leave, identity, room_name})
   end
@@ -31,28 +32,64 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   def handle_call({:switch, identity, room_name}, _from, state) do
     previous_room = Map.get(state, identity)
 
-    if previous_room && previous_room != room_name do
-      Phoenix.PubSub.broadcast(
-        @pubsub,
-        "voice:#{identity}",
-        {:voice_session_replaced, identity, previous_room, room_name}
-      )
-    end
+    case disconnect_previous(previous_room, room_name, identity) do
+      :ok ->
+        broadcast_replacement(previous_room, room_name, identity)
+        {:reply, {:ok, previous_room}, Map.put(state, identity, room_name)}
 
-    {:reply, {:ok, previous_room}, Map.put(state, identity, room_name)}
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
   end
 
   def handle_call({:leave, identity, room_name}, _from, state) do
-    next_state =
-      case Map.get(state, identity) do
-        ^room_name -> Map.delete(state, identity)
-        _ -> state
-      end
+    case Map.get(state, identity) do
+      ^room_name ->
+        case room_service().remove_participant(room_name, identity) do
+          result when result in [:ok, {:error, :not_found}] ->
+            {:reply, :ok, Map.delete(state, identity)}
 
-    {:reply, :ok, next_state}
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
+
+      _ ->
+        {:reply, :ok, state}
+    end
   end
 
   def handle_call({:active_room, identity}, _from, state) do
     {:reply, Map.get(state, identity), state}
+  end
+
+  defp disconnect_previous(nil, _room_name, _identity), do: :ok
+  defp disconnect_previous(room_name, room_name, _identity), do: :ok
+
+  defp disconnect_previous(previous_room, _room_name, identity) do
+    case room_service().remove_participant(previous_room, identity) do
+      {:error, :not_found} -> :ok
+      result -> result
+    end
+  end
+
+  defp broadcast_replacement(nil, _room_name, _identity), do: :ok
+
+  defp broadcast_replacement(previous_room, room_name, _identity) when previous_room == room_name,
+    do: :ok
+
+  defp broadcast_replacement(previous_room, room_name, identity) do
+    Phoenix.PubSub.broadcast(
+      @pubsub,
+      "voice:#{identity}",
+      {:voice_session_replaced, identity, previous_room, room_name}
+    )
+  end
+
+  defp room_service do
+    Application.get_env(
+      :discordia_signaling,
+      :livekit_room_service,
+      DiscordiaSignaling.Voice.LiveKitRoomService
+    )
   end
 end

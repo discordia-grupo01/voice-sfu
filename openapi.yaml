@@ -35,6 +35,34 @@ paths:
         "503":
           description: Dependencies unavailable
 
+  /api/voice/session:
+    delete:
+      summary: Leave a voice channel
+      description: Removes the authenticated participant from the requested LiveKit voice room.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - channel_id
+              properties:
+                channel_id:
+                  type: string
+                  format: uuid
+      responses:
+        "204":
+          description: Participant disconnected successfully or was already absent.
+        "400":
+          description: Channel ID is missing.
+        "403":
+          description: User cannot access the voice channel.
+        "503":
+          description: Voice service is not available.
+
   /api/voice/token:
     post:
       summary: Issue a LiveKit token for a voice channel

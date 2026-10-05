@@ -33,6 +33,11 @@ defmodule DiscordiaSignalingWeb.VoiceTokenController do
         conn
         |> Plug.Conn.put_status(400)
         |> json(%{error: "invalid_channel_id"})
+
+      {:error, :unavailable} ->
+        conn
+        |> Plug.Conn.put_status(503)
+        |> json(%{error: "voice_unavailable"})
     end
   end
 
