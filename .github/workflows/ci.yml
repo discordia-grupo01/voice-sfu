@@ -12,7 +12,7 @@ jobs:
     defaults:
       run:
         working-directory: signaling
-        
+
     services:
       postgres:
         image: postgres:16-alpine
@@ -35,8 +35,8 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: '1.16'
-          otp-version: '26'
+          elixir-version: '1.17'
+          otp-version: '27'
 
       - name: Instalar dependencias
         run: mix deps.get
