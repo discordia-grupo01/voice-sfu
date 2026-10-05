@@ -17,8 +17,13 @@ defmodule DiscordiaSignalingWeb.RouterTest do
     System.put_env("VOICE_AUTHZ_MODE", "allow_authenticated")
 
     on_exit(fn ->
-      if previous_secret, do: System.put_env("JWT_SECRET", previous_secret), else: System.delete_env("JWT_SECRET")
-      if previous_mode, do: System.put_env("VOICE_AUTHZ_MODE", previous_mode), else: System.delete_env("VOICE_AUTHZ_MODE")
+      if previous_secret,
+        do: System.put_env("JWT_SECRET", previous_secret),
+        else: System.delete_env("JWT_SECRET")
+
+      if previous_mode,
+        do: System.put_env("VOICE_AUTHZ_MODE", previous_mode),
+        else: System.delete_env("VOICE_AUTHZ_MODE")
 
       if previous_servers do
         Application.put_env(:discordia_signaling, :servers, previous_servers)
@@ -73,7 +78,9 @@ defmodule DiscordiaSignalingWeb.RouterTest do
     channel_id = "550e8400-e29b-41d4-a716-446655440000"
     System.put_env("VOICE_AUTHZ_MODE", "servers_api")
 
-    {:ok, listen_socket} = :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
     {:ok, port} = :inet.port(listen_socket)
     Application.put_env(:discordia_signaling, :servers, url: "http://localhost:#{port}")
 
@@ -83,7 +90,9 @@ defmodule DiscordiaSignalingWeb.RouterTest do
         {:ok, request} = :gen_tcp.recv(socket, 0)
         assert String.contains?(request, "/v1/channels/" <> channel_id <> "/voice-access")
 
-        response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 16\r\nConnection: close\r\n\r\n{\"allowed\":true}"
+        response =
+          "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 29\r\nConnection: close\r\n\r\n{\"allowed\":true,\"name\":\"Ada\"}"
+
         :gen_tcp.send(socket, response)
         :gen_tcp.close(socket)
         :gen_tcp.close(listen_socket)
@@ -100,8 +109,48 @@ defmodule DiscordiaSignalingWeb.RouterTest do
     assert conn.status == 200
     body = Jason.decode!(conn.resp_body)
     assert body["identity"] == "user-77"
+    assert body["name"] == "Ada"
     assert body["room_name"] == "voice:" <> channel_id
     assert is_binary(body["token"])
+
+    assert :ok == Task.await(server_task, 5_000)
+  end
+
+  test "falls back to the identity when servers_api omits the profile name" do
+    channel_id = "550e8400-e29b-41d4-a716-446655440000"
+    System.put_env("VOICE_AUTHZ_MODE", "servers_api")
+
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+    {:ok, port} = :inet.port(listen_socket)
+    Application.put_env(:discordia_signaling, :servers, url: "http://localhost:#{port}")
+
+    server_task =
+      Task.async(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        {:ok, _request} = :gen_tcp.recv(socket, 0)
+
+        response =
+          "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 16\r\nConnection: close\r\n\r\n{\"allowed\":true}"
+
+        :gen_tcp.send(socket, response)
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+      end)
+
+    token = TestHelpers.signed_access_token(%{"sub" => "user-77"})
+
+    conn =
+      conn(:post, "/api/voice/token", Jason.encode!(%{"channel_id" => channel_id}))
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> Router.call(Router.init([]))
+
+    assert conn.status == 200
+    body = Jason.decode!(conn.resp_body)
+    assert body["identity"] == "user-77"
+    assert body["name"] == "user-77"
 
     assert :ok == Task.await(server_task, 5_000)
   end
