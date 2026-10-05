@@ -1,17 +1,4 @@
 services:
-  sfu:
-    profiles: ["prototype"]
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
-      - "50000:50000/udp"
-    env_file: .env
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
   signaling:
     build:
       context: ./signaling

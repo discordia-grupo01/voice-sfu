@@ -8,6 +8,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:16-alpine
@@ -21,20 +22,29 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
+
+    env:
+      MIX_ENV: test
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-      - name: Chequeo de formato (gofmt)
-        run: |
-          UNFORMATTED=$(gofmt -l .)
-          if [ -n "$UNFORMATTED" ]; then
-            echo "Archivos sin formatear:"
-            echo "$UNFORMATTED"
-            exit 1
-          fi
 
-      - run: go build ./...
-      - run: go vet ./...
-      - run: go test ./... -cover
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.16'
+          otp-version: '26'
+
+      - name: Instalar dependencias
+        run: mix deps.get
+
+      - name: Chequeo de formato
+        run: mix format --check-formatted
+
+      - name: Compilar
+        run: mix compile --warnings-as-errors
+
+      - name: Configurar base de datos
+        run: mix ecto.create && mix ecto.migrate
+
+      - name: Ejecutar tests
+        run: mix test --cover

@@ -1,16 +1,119 @@
 openapi: 3.0.3
 info:
-  title: Discordia - SERVICIO
+  title: Discordia - Voice Signaling API
   version: "1.0.0"
 paths:
   /livez:
     get:
       summary: Liveness check
       responses:
-        "200": { description: OK }
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
   /readyz:
     get:
       summary: Readiness check
       responses:
-        "200": { description: OK }
-        "503": { description: Dependencias no disponibles }
+        "200":
+          description: Service dependencies are ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        "503":
+          description: Dependencies unavailable
+
+  /api/voice/token:
+    post:
+      summary: Issue a LiveKit token for a voice channel
+      description: Authenticated users can request a short-lived LiveKit token for a specific voice channel. The service derives the room name as voice:<channel_id> and validates access before issuing the token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - channel_id
+              properties:
+                channel_id:
+                  type: string
+                  format: uuid
+                  example: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        "200":
+          description: Token issued successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - identity
+                  - room_name
+                  - token
+                  - url
+                properties:
+                  identity:
+                    type: string
+                    example: user-42
+                  room_name:
+                    type: string
+                    example: voice:550e8400-e29b-41d4-a716-446655440000
+                  token:
+                    type: string
+                    description: Signed LiveKit JWT valid for the room
+                  url:
+                    type: string
+                    example: ws://localhost:7880
+        "400":
+          description: Missing or invalid channel_id
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum: [channel_id_required, invalid_channel_id]
+        "401":
+          description: Request is not authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: unauthorized
+        "403":
+          description: User is authenticated but not allowed in the requested voice room
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: voice_forbidden
+        "503":
+          description: LiveKit service is not configured or available
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: voice_not_configured
