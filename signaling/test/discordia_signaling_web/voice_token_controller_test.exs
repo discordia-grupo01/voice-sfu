@@ -4,12 +4,15 @@ defmodule DiscordiaSignalingWeb.VoiceTokenControllerTest do
   import Plug.Test
 
   alias DiscordiaSignaling.TestHelpers
+  alias DiscordiaSignaling.Voice.VoiceSessionRegistry
   alias DiscordiaSignalingWeb.VoiceTokenController
 
   setup do
     TestHelpers.put_livekit_config()
     previous_mode = System.get_env("VOICE_AUTHZ_MODE")
     System.put_env("VOICE_AUTHZ_MODE", "allow_authenticated")
+    VoiceSessionRegistry.leave("user-1", "voice:550e8400-e29b-41d4-a716-446655440000")
+    VoiceSessionRegistry.leave("user-1", "voice:650e8400-e29b-41d4-a716-446655440000")
 
     on_exit(fn ->
       if previous_mode,
@@ -32,6 +35,20 @@ defmodule DiscordiaSignalingWeb.VoiceTokenControllerTest do
     assert body["room_name"] == "voice:550e8400-e29b-41d4-a716-446655440000"
     assert body["url"] == "ws://test-livekit:7880"
     assert is_binary(body["token"])
+  end
+
+  test "replaces the active room when the user requests another channel" do
+    first_channel = "550e8400-e29b-41d4-a716-446655440000"
+    second_channel = "650e8400-e29b-41d4-a716-446655440000"
+    first_conn = Plug.Conn.assign(conn(:post, "/api/voice/token"), :current_user_id, "user-1")
+    second_conn = Plug.Conn.assign(conn(:post, "/api/voice/token"), :current_user_id, "user-1")
+
+    assert VoiceTokenController.create(first_conn, %{"channel_id" => first_channel}).status == 200
+
+    assert VoiceTokenController.create(second_conn, %{"channel_id" => second_channel}).status ==
+             200
+
+    assert VoiceSessionRegistry.active_room("user-1") == "voice:" <> second_channel
   end
 
   test "returns forbidden when the authenticated identity is invalid" do

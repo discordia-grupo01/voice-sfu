@@ -7,6 +7,7 @@ defmodule DiscordiaSignaling.Application do
   def start(_type, _args) do
     children = [
       {Phoenix.PubSub, name: DiscordiaSignaling.PubSub},
+      DiscordiaSignaling.Voice.VoiceSessionRegistry,
       DiscordiaSignalingWeb.Endpoint
     ]
 
