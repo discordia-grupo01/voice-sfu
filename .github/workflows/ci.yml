@@ -47,8 +47,5 @@ jobs:
       - name: Compilar
         run: mix compile --warnings-as-errors
 
-      - name: Configurar base de datos
-        run: mix ecto.create && mix ecto.migrate
-
       - name: Ejecutar tests
         run: mix test --cover
