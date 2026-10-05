@@ -24,7 +24,9 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
 
 `POST /api/voice/token` accepts only `{ "channel_id": "..." }`. Phoenix derives
 the LiveKit room name as `voice:<channel_id>` and forwards the validated JWT to
-`GET /v1/channels/{channelId}/voice-access` in `servers`.
+`GET /v1/channels/{channelId}/voice-access` in `servers`. The authorization
+response supplies the user's replicated public profile name, which Phoenix
+includes in the LiveKit token `name` claim.
 
 ## Tests y cobertura
 

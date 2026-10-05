@@ -32,6 +32,7 @@ defmodule DiscordiaSignalingWeb.VoiceTokenControllerTest do
     assert conn.status == 200
     body = Jason.decode!(conn.resp_body)
     assert body["identity"] == "user-1"
+    assert body["name"] == "user-1"
     assert body["room_name"] == "voice:550e8400-e29b-41d4-a716-446655440000"
     assert body["url"] == "ws://test-livekit:7880"
     assert is_binary(body["token"])

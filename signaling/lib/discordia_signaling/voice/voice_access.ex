@@ -15,9 +15,23 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
 
   def authorize(user_id, channel_id, authorization_header)
       when is_binary(user_id) and user_id != "" and is_binary(channel_id) and channel_id != "" do
+    case authorize_with_name(user_id, channel_id, authorization_header) do
+      {:ok, room_name, _name} -> {:ok, room_name}
+      error -> error
+    end
+  end
+
+  def authorize(_user_id, _channel_id, _authorization_header), do: {:error, :forbidden}
+
+  @spec authorize_with_name(String.t(), String.t(), String.t() | nil) ::
+          {:ok, String.t(), String.t()} | {:error, atom()}
+  def authorize_with_name(user_id, channel_id, authorization_header \\ nil)
+
+  def authorize_with_name(user_id, channel_id, authorization_header)
+      when is_binary(user_id) and user_id != "" and is_binary(channel_id) and channel_id != "" do
     if Regex.match?(@uuid_pattern, channel_id) do
       case authz_mode() do
-        "allow_authenticated" -> {:ok, room_name(channel_id)}
+        "allow_authenticated" -> {:ok, room_name(channel_id), user_id}
         "servers_api" -> authorize_with_servers(user_id, channel_id, authorization_header)
         _ -> {:error, :not_configured}
       end
@@ -26,7 +40,7 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
     end
   end
 
-  def authorize(_user_id, _channel_id, _authorization_header), do: {:error, :forbidden}
+  def authorize_with_name(_user_id, _channel_id, _authorization_header), do: {:error, :forbidden}
 
   defp authz_mode do
     System.get_env(
@@ -42,7 +56,7 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
     {:error, :forbidden}
   end
 
-  defp authorize_with_servers(_user_id, channel_id, authorization_header) do
+  defp authorize_with_servers(user_id, channel_id, authorization_header) do
     base_url = Application.get_env(:discordia_signaling, :servers, [])[:url]
     url = String.to_charlist(base_url <> "/v1/channels/" <> channel_id <> "/voice-access")
     headers = [{~c"authorization", String.to_charlist(authorization_header)}]
@@ -50,8 +64,14 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
     case :httpc.request(:get, {url, headers}, [], body_format: :binary) do
       {:ok, {{_, 200, _}, _headers, body}} ->
         case Jason.decode(body) do
-          {:ok, %{"allowed" => true}} -> {:ok, room_name(channel_id)}
-          _ -> {:error, :forbidden}
+          {:ok, %{"allowed" => true} = response} ->
+            name = Map.get(response, "name", user_id)
+
+            {:ok, room_name(channel_id),
+             if(is_binary(name) and name != "", do: name, else: user_id)}
+
+          _ ->
+            {:error, :forbidden}
         end
 
       {:ok, {{_, status, _}, _headers, _body}} when status in [401, 403, 404] ->

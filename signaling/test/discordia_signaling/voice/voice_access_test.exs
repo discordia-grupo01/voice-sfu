@@ -22,6 +22,13 @@ defmodule DiscordiaSignaling.Voice.VoiceAccessTest do
              VoiceAccess.authorize("user-1", "550e8400-e29b-41d4-a716-446655440000")
   end
 
+  test "returns the authenticated identity as the display name in development mode" do
+    System.put_env("VOICE_AUTHZ_MODE", "allow_authenticated")
+
+    assert {:ok, "voice:550e8400-e29b-41d4-a716-446655440000", "user-1"} =
+             VoiceAccess.authorize_with_name("user-1", "550e8400-e29b-41d4-a716-446655440000")
+  end
+
   test "rejects access when authorization is not configured" do
     System.put_env("VOICE_AUTHZ_MODE", "deny")
 
