@@ -8,6 +8,8 @@ defmodule DiscordiaSignaling.Voice.LiveKitToken do
     issue(identity, name, room_name, true)
   end
 
+  def issue(_identity, _name, _room_name), do: {:error, :invalid_input}
+
   @spec issue(String.t(), String.t(), String.t(), boolean()) ::
           {:ok, String.t()} | {:error, atom()}
   def issue(identity, name, room_name, can_publish)
@@ -45,6 +47,5 @@ defmodule DiscordiaSignaling.Voice.LiveKitToken do
     end
   end
 
-  def issue(_identity, _name, _room_name), do: {:error, :invalid_input}
   def issue(_identity, _name, _room_name, _can_publish), do: {:error, :invalid_input}
 end
