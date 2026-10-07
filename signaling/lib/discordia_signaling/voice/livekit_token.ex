@@ -5,6 +5,14 @@ defmodule DiscordiaSignaling.Voice.LiveKitToken do
   def issue(identity, name, room_name)
       when is_binary(identity) and identity != "" and is_binary(name) and name != "" and
              is_binary(room_name) and room_name != "" do
+    issue(identity, name, room_name, true)
+  end
+
+  @spec issue(String.t(), String.t(), String.t(), boolean()) ::
+          {:ok, String.t()} | {:error, atom()}
+  def issue(identity, name, room_name, can_publish)
+      when is_binary(identity) and identity != "" and is_binary(name) and name != "" and
+             is_binary(room_name) and room_name != "" and is_boolean(can_publish) do
     config = Application.get_env(:discordia_signaling, :livekit, [])
     api_key = Keyword.get(config, :api_key, "")
     api_secret = Keyword.get(config, :api_secret, "")
@@ -24,7 +32,7 @@ defmodule DiscordiaSignaling.Voice.LiveKitToken do
         "video" => %{
           "roomJoin" => true,
           "room" => room_name,
-          "canPublish" => true,
+          "canPublish" => can_publish,
           "canSubscribe" => true,
           "canPublishData" => true
         }
@@ -38,4 +46,5 @@ defmodule DiscordiaSignaling.Voice.LiveKitToken do
   end
 
   def issue(_identity, _name, _room_name), do: {:error, :invalid_input}
+  def issue(_identity, _name, _room_name, _can_publish), do: {:error, :invalid_input}
 end

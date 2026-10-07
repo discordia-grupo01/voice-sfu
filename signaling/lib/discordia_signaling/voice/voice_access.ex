@@ -15,8 +15,8 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
 
   def authorize(user_id, channel_id, authorization_header)
       when is_binary(user_id) and user_id != "" and is_binary(channel_id) and channel_id != "" do
-    case authorize_with_name(user_id, channel_id, authorization_header) do
-      {:ok, room_name, _name} -> {:ok, room_name}
+    case authorize_with_permissions(user_id, channel_id, authorization_header) do
+      {:ok, room_name, _name, _can_publish} -> {:ok, room_name}
       error -> error
     end
   end
@@ -25,13 +25,22 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
 
   @spec authorize_with_name(String.t(), String.t(), String.t() | nil) ::
           {:ok, String.t(), String.t()} | {:error, atom()}
-  def authorize_with_name(user_id, channel_id, authorization_header \\ nil)
+  def authorize_with_name(user_id, channel_id, authorization_header \\ nil) do
+    case authorize_with_permissions(user_id, channel_id, authorization_header) do
+      {:ok, room_name, name, _can_publish} -> {:ok, room_name, name}
+      error -> error
+    end
+  end
 
-  def authorize_with_name(user_id, channel_id, authorization_header)
+  @spec authorize_with_permissions(String.t(), String.t(), String.t() | nil) ::
+          {:ok, String.t(), String.t(), boolean()} | {:error, atom()}
+  def authorize_with_permissions(user_id, channel_id, authorization_header \\ nil)
+
+  def authorize_with_permissions(user_id, channel_id, authorization_header)
       when is_binary(user_id) and user_id != "" and is_binary(channel_id) and channel_id != "" do
     if Regex.match?(@uuid_pattern, channel_id) do
       case authz_mode() do
-        "allow_authenticated" -> {:ok, room_name(channel_id), user_id}
+        "allow_authenticated" -> {:ok, room_name(channel_id), user_id, true}
         "servers_api" -> authorize_with_servers(user_id, channel_id, authorization_header)
         _ -> {:error, :not_configured}
       end
@@ -40,7 +49,8 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
     end
   end
 
-  def authorize_with_name(_user_id, _channel_id, _authorization_header), do: {:error, :forbidden}
+  def authorize_with_permissions(_user_id, _channel_id, _authorization_header),
+    do: {:error, :forbidden}
 
   defp authz_mode do
     System.get_env(
@@ -66,9 +76,10 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
         case Jason.decode(body) do
           {:ok, %{"allowed" => true} = response} ->
             name = Map.get(response, "name", user_id)
+            can_publish = Map.get(response, "muted") != true
 
             {:ok, room_name(channel_id),
-             if(is_binary(name) and name != "", do: name, else: user_id)}
+             if(is_binary(name) and name != "", do: name, else: user_id), can_publish}
 
           _ ->
             {:error, :forbidden}
