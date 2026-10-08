@@ -1,12 +1,13 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   test:
+    name: Run Tests
     runs-on: ubuntu-24.04
 
     defaults:
@@ -61,3 +62,33 @@ jobs:
 
       - name: Ejecutar tests
         run: mix test --cover
+
+  deploy-staging:
+    name: Deploy to Staging (Fly.io)
+    needs: test
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Desplegar en Staging
+        run: flyctl deploy --config signaling/fly.staging.toml
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  deploy-production:
+    name: Deploy to Production (Fly.io)
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Desplegar en Produccion
+        run: flyctl deploy --config signaling/fly.production.toml
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

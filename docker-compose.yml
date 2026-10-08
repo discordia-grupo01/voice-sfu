@@ -15,7 +15,8 @@ services:
       SERVERS_URL: http://host.docker.internal:8080
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       EVENTS_EXCHANGE: discordia.events
-      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_SECRET: ${JWT_SECRET:-clave_de_ejemplo_de_al_menos_64_caracteres_de_largo_para_pruebas_locales}
+      SECRET_KEY_BASE: ${SECRET:-clave_de_ejemplo_de_al_menos_64_caracteres_de_largo_para_pruebas_locales}
     depends_on:
       livekit:
         condition: service_started
@@ -30,7 +31,7 @@ services:
     ports:
       - "7880:7880"
       - "7881:7881"
-      - "51000-51100:51000-51100/udp"
+      - "51000-51010:51000-51010/udp"
 
   rabbitmq:
     image: rabbitmq:3-management

@@ -1,0 +1,29 @@
+app = "discordia-signaling" # Cambiar por el nombre de tu app en Fly.io
+primary_region = "gru" # Sao Paulo (o la región de Fly.io de tu preferencia)
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "4000"
+  VOICE_AUTHZ_MODE = "servers_api"
+  EVENTS_EXCHANGE = "discordia.events"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 4000
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.http_checks]]
+    interval = "10s"
+    timeout = "2s"
+    grace_period = "5s"
+    method = "get"
+    path = "/health" # O la ruta de healthcheck de tu app
