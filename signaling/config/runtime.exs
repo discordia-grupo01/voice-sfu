@@ -10,6 +10,11 @@ config :discordia_signaling, :servers,
   url: System.get_env("SERVERS_URL", "http://servers:8080"),
   authz_mode: System.get_env("VOICE_AUTHZ_MODE", "deny")
 
+config :discordia_signaling, :events,
+  rabbitmq_url: System.get_env("RABBITMQ_URL", ""),
+  exchange: System.get_env("EVENTS_EXCHANGE", "discordia.events"),
+  queue: System.get_env("VOICE_EVENTS_QUEUE", "voice.signaling")
+
 if config_env() == :prod do
   port = String.to_integer(System.get_env("PORT", "4000"))
   secret_key_base = System.fetch_env!("SECRET_KEY_BASE")
