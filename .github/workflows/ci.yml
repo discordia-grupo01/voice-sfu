@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     defaults:
       run:
@@ -29,6 +29,9 @@ jobs:
 
     env:
       MIX_ENV: test
+      LIVEKIT_URL: ws://localhost:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: devsecret
 
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +40,15 @@ jobs:
         with:
           elixir-version: '1.17.3'
           otp-version: '26'
-          version-type: strict
+
+      - name: Iniciar LiveKit
+        run: |
+          docker run -d \
+            --name livekit \
+            --network host \
+            -p 7880:7880 \
+            livekit/livekit-server:latest \
+            --dev
 
       - name: Instalar dependencias
         run: mix deps.get
