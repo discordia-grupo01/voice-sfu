@@ -1,4 +1,4 @@
-FROM elixir:1.17.3-otp-27-alpine
+FROM elixir:1.17.3-otp-26-alpine
 
 WORKDIR /app
 ENV MIX_ENV=prod

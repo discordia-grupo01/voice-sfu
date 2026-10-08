@@ -20,6 +20,9 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
 - `PORT`: HTTP port, defaults to `4000`.
 - `SECRET_KEY_BASE`: required when `MIX_ENV=prod`.
 - `SERVERS_URL`: base URL of the servers service used for voice authorization.
+- `RABBITMQ_URL`: broker URL for moderation events; when empty, the consumer is disabled.
+- `EVENTS_EXCHANGE`: RabbitMQ topic exchange, defaults to `discordia.events`.
+- `VOICE_EVENTS_QUEUE`: durable queue for this signaling instance, defaults to `voice.signaling`.
 - `VOICE_AUTHZ_MODE`: `servers_api` for membership and `VIEW_CHANNELS` checks; `allow_authenticated` is local-only.
 
 `POST /api/voice/token` accepts only `{ "channel_id": "..." }`. Phoenix derives
