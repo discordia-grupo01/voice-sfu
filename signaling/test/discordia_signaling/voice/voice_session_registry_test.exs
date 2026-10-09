@@ -87,4 +87,36 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
 
     assert VoiceSessionRegistry.active_room("registry-user-1") == "voice:room-1"
   end
+
+  test "closing a room removes every identity in it and keeps other rooms" do
+    VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
+    VoiceSessionRegistry.switch("registry-user-2", "voice:room-1")
+    VoiceSessionRegistry.switch("registry-user-3", "voice:room-2")
+
+    assert :ok = VoiceSessionRegistry.close_room("voice:room-1")
+    assert VoiceSessionRegistry.active_room("registry-user-1") == nil
+    assert VoiceSessionRegistry.active_room("registry-user-2") == nil
+    assert VoiceSessionRegistry.active_room("registry-user-3") == "voice:room-2"
+
+    VoiceSessionRegistry.leave("registry-user-3", "voice:room-2")
+  end
+
+  test "treats an already deleted LiveKit room as closed" do
+    VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
+    Application.put_env(:discordia_signaling, :test_room_service_result, {:error, :not_found})
+
+    assert :ok = VoiceSessionRegistry.close_room("voice:room-1")
+    assert VoiceSessionRegistry.active_room("registry-user-1") == nil
+  end
+
+  test "keeps the room sessions when closing fails" do
+    VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
+    Application.put_env(:discordia_signaling, :test_room_service_result, {:error, :unavailable})
+
+    assert {:error, :unavailable} = VoiceSessionRegistry.close_room("voice:room-1")
+    assert VoiceSessionRegistry.active_room("registry-user-1") == "voice:room-1"
+
+    Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
+    VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
+  end
 end
