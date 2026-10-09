@@ -90,6 +90,7 @@ jobs:
     name: Deploy to Staging (Fly.io)
     needs: publish-image
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    environment: staging
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -100,7 +101,10 @@ jobs:
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Desplegar en Staging
-        run: flyctl deploy --config fly.staging.toml --image "${{ secrets.DOCKERHUB_USERNAME }}/discordia-signaling:${GITHUB_SHA}"
+        run: |
+          test -n "$FLY_API_TOKEN" || { echo "Falta FLY_API_TOKEN_STAGING en el entorno staging o en Repository secrets"; exit 1; }
+          flyctl auth whoami
+          flyctl deploy --config fly.staging.toml --image "${{ secrets.DOCKERHUB_USERNAME }}/discordia-signaling:${GITHUB_SHA}"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_STAGING }}
 
@@ -108,6 +112,7 @@ jobs:
     name: Deploy to Production (Fly.io)
     needs: publish-image
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -118,6 +123,9 @@ jobs:
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Desplegar en Produccion
-        run: flyctl deploy --config fly.production.toml --image "${{ secrets.DOCKERHUB_USERNAME }}/discordia-signaling:${GITHUB_SHA}"
+        run: |
+          test -n "$FLY_API_TOKEN" || { echo "Falta FLY_API_TOKEN_PRODUCTION en el entorno production o en Repository secrets"; exit 1; }
+          flyctl auth whoami
+          flyctl deploy --config fly.production.toml --image "${{ secrets.DOCKERHUB_USERNAME }}/discordia-signaling:${GITHUB_SHA}"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_PRODUCTION }}
