@@ -1,5 +1,5 @@
 # --- Etapa 1: Builder ---
-FROM elixir:1.17.3-otp-26-alpine AS builder
+FROM elixir:1.17.3-otp-27-alpine AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN mix compile
 RUN mix release
 
 # --- Etapa 2: Runner ---
-FROM elixir:1.17.3-otp-26-alpine AS app
+FROM elixir:1.17.3-otp-27-alpine AS app
 
 WORKDIR /app
 
