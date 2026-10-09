@@ -66,29 +66,35 @@ jobs:
   deploy-staging:
     name: Deploy to Staging (Fly.io)
     needs: test
-    if: github.ref == 'refs/heads/develop' && (github.event_name == 'push' || github.event_name == 'pull_request')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signaling
     steps:
       - uses: actions/checkout@v4
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Desplegar en Staging
-        run: flyctl deploy --config signaling/fly.staging.toml
+        run: flyctl deploy --config fly.staging.toml --remote-only
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_STAGING }}
 
   deploy-production:
     name: Deploy to Production (Fly.io)
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signaling
     steps:
       - uses: actions/checkout@v4
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Desplegar en Produccion
-        run: flyctl deploy --config signaling/fly.production.toml
+        run: flyctl deploy --config fly.production.toml --remote-only
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_PRODUCTION }}

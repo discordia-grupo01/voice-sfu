@@ -1,5 +1,5 @@
-app = "discordia-signaling" # Cambiar por el nombre de tu app en Fly.io
-primary_region = "gru" # Sao Paulo (o la región de Fly.io de tu preferencia)
+app = "discordia-signaling"
+primary_region = "gru"
 
 [build]
   dockerfile = "Dockerfile"
@@ -24,6 +24,6 @@ primary_region = "gru" # Sao Paulo (o la región de Fly.io de tu preferencia)
   [[services.http_checks]]
     interval = "10s"
     timeout = "2s"
-    grace_period = "5s"
+    grace_period = "15s"
     method = "get"
-    path = "/health" # O la ruta de healthcheck de tu app
+    path = "/readyz"

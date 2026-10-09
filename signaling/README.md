@@ -25,6 +25,18 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
 - `VOICE_EVENTS_QUEUE`: durable queue for this signaling instance, defaults to `voice.signaling`.
 - `VOICE_AUTHZ_MODE`: `servers_api` for membership and `VIEW_CHANNELS` checks; `allow_authenticated` is local-only.
 
+## CI/CD con Fly.io
+
+El workflow de `voice-sfu` despliega este servicio desde `signaling/`:
+
+- `develop` usa `fly.staging.toml` y el secret `FLY_API_TOKEN_STAGING`.
+- `main` usa `fly.production.toml` y el secret `FLY_API_TOKEN_PRODUCTION`.
+
+Antes del primer despliegue, crea las aplicaciones `discordia-signaling-staging` y
+`discordia-signaling-production`, y configura en cada una los secrets `SECRET_KEY_BASE`,
+`LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_URL`, `SERVERS_URL` y `RABBITMQ_URL`.
+Los manifests solo contienen configuración no sensible.
+
 `POST /api/voice/token` accepts only `{ "channel_id": "..." }`. Phoenix derives
 the LiveKit room name as `voice:<channel_id>` and forwards the validated JWT to
 `GET /v1/channels/{channelId}/voice-access` in `servers`. The authorization
