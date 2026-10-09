@@ -40,6 +40,10 @@ defmodule DiscordiaSignaling.TestLiveKitRoomService do
     Application.get_env(:discordia_signaling, :test_room_service_result, :ok)
   end
 
+  def delete_room(_room_name) do
+    Application.get_env(:discordia_signaling, :test_room_service_result, :ok)
+  end
+
   def set_publish_permission(room_name, identity, can_publish) do
     send(self(), {:publish_permission, room_name, identity, can_publish})
     Application.get_env(:discordia_signaling, :test_room_service_result, :ok)

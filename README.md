@@ -52,6 +52,15 @@ El mensaje de signaling Go usa `type`, `room_id`, `peer_id` y `data`. Los tipos 
 
 Los eventos publicados por el SFU son `voice.participant.joined`, `voice.participant.left` y `voice.channel.empty`. Sus payloads están en `internal/events/events-contract/voice.go`.
 
+Phoenix consume del exchange `discordia.events` (cola `VOICE_EVENTS_QUEUE`, por defecto `voice.signaling`) estos eventos de `servers`:
+
+- `servers.member_muted` / `servers.member_unmuted`: quita o devuelve el permiso de publicar audio al participante en su sala activa.
+- `servers.channel_access_revoked`: saca de la sala `voice:<channel_id>` a los `user_ids` que perdieron `VIEW_CHANNELS` en ese canal (overrides o cambios de roles, transferencia de propiedad, expulsión, baneo o abandono del servidor). Así es como se corta la llamada al expulsar, banear o cuando el miembro abandona el servidor. Si el usuario está en otra sala o no está en voz, no pasa nada.
+- `servers.channel_deleted`: cierra la sala `voice:<channel_id>` con `DeleteRoom` de LiveKit, que desconecta a todos sus participantes.
+- `servers.server_deleted`: cierra la sala de cada canal de `channel_ids`.
+
+Una sala o participante que LiveKit ya no tiene cuenta como éxito. Si LiveKit no responde, el mensaje se devuelve a la cola (nack con requeue) y se reintenta entero; repetir la salida o el cierre es idempotente. Los payloads inválidos se descartan con ack. Los contratos están en `discordia-events_contract` (`channels/events.go`, `servers/events.go`).
+
 El contrato de acceso a LiveKit contiene `identity`, `room_name`, `token` y `url`. `room_name` no es entrada del cliente: Phoenix lo deriva del canal autorizado y firma el JWT con `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET`.
 
 ## Estructura

@@ -1,5 +1,11 @@
 defmodule DiscordiaSignaling.Events.MutingConsumer do
-  @moduledoc "Consumes moderation mute events and updates active LiveKit permissions."
+  @moduledoc """
+  Consumes servers events that affect active voice sessions.
+
+  Mute events update LiveKit publish permissions. Channel access revocations
+  remove the listed users from that channel's room, and channel or server
+  deletions close the affected rooms.
+  """
 
   use GenServer
   require Logger
@@ -8,6 +14,16 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
 
   @muted_key "servers.member_muted"
   @unmuted_key "servers.member_unmuted"
+  @access_revoked_key "servers.channel_access_revoked"
+  @channel_deleted_key "servers.channel_deleted"
+  @server_deleted_key "servers.server_deleted"
+  @routing_keys [
+    @muted_key,
+    @unmuted_key,
+    @access_revoked_key,
+    @channel_deleted_key,
+    @server_deleted_key
+  ]
   @default_exchange "discordia.events"
   @default_queue "voice.signaling"
 
@@ -74,9 +90,14 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
 
   @spec process_payload(String.t(), binary()) :: :ack | :retry
   def process_payload(routing_key, payload) do
-    with {:ok, event} <- Jason.decode(payload),
-         {:ok, user_id, can_publish} <- parse_event(routing_key, event),
-         room_name when is_binary(room_name) <- VoiceSessionRegistry.active_room(user_id) do
+    case Jason.decode(payload) do
+      {:ok, event} -> handle_event(parse_event(routing_key, event))
+      {:error, _reason} -> :ack
+    end
+  end
+
+  defp handle_event({:ok, user_id, can_publish}) do
+    with room_name when is_binary(room_name) <- VoiceSessionRegistry.active_room(user_id) do
       case room_service().set_publish_permission(room_name, user_id, can_publish) do
         :ok -> :ack
         {:error, :not_found} -> :ack
@@ -84,8 +105,25 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
       end
     else
       nil -> :ack
-      {:error, _reason} -> :ack
     end
+  end
+
+  defp handle_event({:revoke_access, room_name, user_ids}) do
+    user_ids
+    |> Enum.map(&VoiceSessionRegistry.leave(&1, room_name))
+    |> ack_if_all_ok()
+  end
+
+  defp handle_event({:close_rooms, room_names}) do
+    room_names
+    |> Enum.map(&VoiceSessionRegistry.close_room/1)
+    |> ack_if_all_ok()
+  end
+
+  defp handle_event({:error, _reason}), do: :ack
+
+  defp ack_if_all_ok(results) do
+    if Enum.all?(results, &(&1 == :ok)), do: :ack, else: :retry
   end
 
   defp parse_event(@muted_key, %{
@@ -109,7 +147,50 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
     {:ok, user_id, true}
   end
 
+  defp parse_event(@access_revoked_key, %{
+         "event_id" => event_id,
+         "server_id" => server_id,
+         "channel_id" => channel_id,
+         "user_ids" => [_ | _] = user_ids
+       })
+       when is_binary(event_id) and event_id != "" and is_binary(server_id) and server_id != "" and
+              is_binary(channel_id) and channel_id != "" do
+    if Enum.all?(user_ids, &non_empty_string?/1) do
+      {:revoke_access, room_name(channel_id), user_ids}
+    else
+      {:error, :invalid_event}
+    end
+  end
+
+  defp parse_event(@channel_deleted_key, %{
+         "event_id" => event_id,
+         "server_id" => server_id,
+         "channel_id" => channel_id
+       })
+       when is_binary(event_id) and event_id != "" and is_binary(server_id) and server_id != "" and
+              is_binary(channel_id) and channel_id != "" do
+    {:close_rooms, [room_name(channel_id)]}
+  end
+
+  defp parse_event(@server_deleted_key, %{
+         "event_id" => event_id,
+         "server_id" => server_id,
+         "channel_ids" => channel_ids
+       })
+       when is_binary(event_id) and event_id != "" and is_binary(server_id) and server_id != "" and
+              is_list(channel_ids) do
+    if Enum.all?(channel_ids, &non_empty_string?/1) do
+      {:close_rooms, Enum.map(channel_ids, &room_name/1)}
+    else
+      {:error, :invalid_event}
+    end
+  end
+
   defp parse_event(_routing_key, _event), do: {:error, :invalid_event}
+
+  defp non_empty_string?(value), do: is_binary(value) and value != ""
+
+  defp room_name(channel_id), do: "voice:" <> channel_id
 
   defp acknowledge(:ack, channel, delivery_tag), do: AMQP.Basic.ack(channel, delivery_tag)
 
@@ -128,7 +209,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
   end
 
   defp bind(channel, state) do
-    Enum.reduce_while([@muted_key, @unmuted_key], :ok, fn key, :ok ->
+    Enum.reduce_while(@routing_keys, :ok, fn key, :ok ->
       case AMQP.Queue.bind(channel, state.queue, state.exchange, routing_key: key) do
         :ok -> {:cont, :ok}
         error -> {:halt, error}

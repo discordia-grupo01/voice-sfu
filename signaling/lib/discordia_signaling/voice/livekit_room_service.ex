@@ -1,5 +1,5 @@
 defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
-  @moduledoc "Applies participant controls to LiveKit rooms."
+  @moduledoc "Applies participant and room controls to LiveKit rooms."
 
   @spec set_publish_permission(String.t(), String.t(), boolean()) :: :ok | {:error, atom()}
   def set_publish_permission(room_name, identity, can_publish)
@@ -30,6 +30,15 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
 
   def remove_participant(_room_name, _identity), do: {:error, :invalid_input}
 
+  @spec delete_room(String.t()) :: :ok | {:error, atom()}
+  def delete_room(room_name) when is_binary(room_name) and room_name != "" do
+    with {:ok, config} <- livekit_config() do
+      request(config, "/twirp/livekit.RoomService/DeleteRoom", %{"room" => room_name})
+    end
+  end
+
+  def delete_room(_room_name), do: {:error, :invalid_input}
+
   defp livekit_config do
     config = Application.get_env(:discordia_signaling, :livekit, [])
     api_key = Keyword.get(config, :api_key, "")
@@ -47,6 +56,8 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
     end
   end
 
+  # LiveKit only lets roomAdmin act on the room named in the grant, and
+  # DeleteRoom also needs roomCreate.
   defp request(config, path, body) do
     now = System.system_time(:second)
 
@@ -55,7 +66,7 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
       "sub" => "discordia-signaling",
       "nbf" => now,
       "exp" => now + 60,
-      "video" => %{"roomAdmin" => true}
+      "video" => %{"roomAdmin" => true, "roomCreate" => true, "room" => body["room"]}
     }
 
     jwk = JOSE.JWK.from_oct(config.api_secret)
@@ -81,6 +92,5 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
     |> String.replace_prefix("ws://", "http://")
     |> String.replace_prefix("wss://", "https://")
     |> String.trim_trailing("/")
-    |> Kernel.<>("/twirp/livekit.RoomService/RemoveParticipant")
   end
 end

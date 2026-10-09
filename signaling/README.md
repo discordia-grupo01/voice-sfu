@@ -20,7 +20,7 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
 - `PORT`: HTTP port, defaults to `4000`.
 - `SECRET_KEY_BASE`: required when `MIX_ENV=prod`.
 - `SERVERS_URL`: base URL of the servers service used for voice authorization.
-- `RABBITMQ_URL`: broker URL for moderation events; when empty, the consumer is disabled.
+- `RABBITMQ_URL`: broker URL for servers events (mute, channel access revoked, channel and server deleted); when empty, the consumer is disabled.
 - `EVENTS_EXCHANGE`: RabbitMQ topic exchange, defaults to `discordia.events`.
 - `VOICE_EVENTS_QUEUE`: durable queue for this signaling instance, defaults to `voice.signaling`.
 - `VOICE_AUTHZ_MODE`: `servers_api` for membership and `VIEW_CHANNELS` checks; `allow_authenticated` is local-only.
@@ -30,6 +30,14 @@ the LiveKit room name as `voice:<channel_id>` and forwards the validated JWT to
 `GET /v1/channels/{channelId}/voice-access` in `servers`. The authorization
 response supplies the user's replicated public profile name, which Phoenix
 includes in the LiveKit token `name` claim.
+
+`DiscordiaSignaling.Events.MutingConsumer` binds `servers.member_muted`,
+`servers.member_unmuted`, `servers.channel_access_revoked`,
+`servers.channel_deleted` and `servers.server_deleted`. Mute events toggle
+`canPublish` in LiveKit; an access revocation removes each listed user from
+`voice:<channel_id>` (this is how kick, ban and leave end an active call);
+channel and server deletions close the affected rooms with `DeleteRoom`.
+LiveKit errors other than `not_found` requeue the message.
 
 ## Tests y cobertura
 

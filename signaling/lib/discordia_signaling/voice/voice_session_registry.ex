@@ -20,6 +20,11 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     GenServer.call(__MODULE__, {:leave, identity, room_name})
   end
 
+  @spec close_room(String.t()) :: :ok | {:error, atom()}
+  def close_room(room_name) when is_binary(room_name) do
+    GenServer.call(__MODULE__, {:close_room, room_name})
+  end
+
   @spec active_room(String.t()) :: String.t() | nil
   def active_room(identity) when is_binary(identity) do
     GenServer.call(__MODULE__, {:active_room, identity})
@@ -55,6 +60,16 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
 
       _ ->
         {:reply, :ok, state}
+    end
+  end
+
+  def handle_call({:close_room, room_name}, _from, state) do
+    case room_service().delete_room(room_name) do
+      result when result in [:ok, {:error, :not_found}] ->
+        {:reply, :ok, Map.reject(state, fn {_identity, active} -> active == room_name end)}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
