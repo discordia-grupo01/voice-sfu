@@ -81,9 +81,9 @@ jobs:
           IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/discordia-signaling
         run: |
           docker build \
-            --file voice-sfu/signaling/Dockerfile \
+            --file signaling/Dockerfile \
             --tag "$IMAGE:${GITHUB_SHA}" \
-            voice-sfu/signaling
+            signaling
           docker push "$IMAGE:${GITHUB_SHA}"
 
   deploy-staging:
