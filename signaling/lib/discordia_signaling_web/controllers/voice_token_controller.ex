@@ -9,14 +9,21 @@ defmodule DiscordiaSignalingWeb.VoiceTokenController do
     user_id = conn.assigns.current_user_id
     authorization_header = List.first(Plug.Conn.get_req_header(conn, "authorization"))
 
-    with {:ok, room_name, name, can_publish} <-
-           VoiceAccess.authorize_with_permissions(user_id, channel_id, authorization_header),
-         {:ok, token} <- LiveKitToken.issue(user_id, name, room_name, can_publish),
-         {:ok, _previous_room} <- VoiceSessionRegistry.switch(user_id, room_name) do
+    with {:ok, details} <-
+           VoiceAccess.authorize_with_details(user_id, channel_id, authorization_header),
+         {:ok, token} <-
+           LiveKitToken.issue(user_id, details.name, details.room_name, details.can_publish),
+         {:ok, _previous_room} <-
+           VoiceSessionRegistry.switch(
+             user_id,
+             details.room_name,
+             details.name,
+             details.server_id
+           ) do
       json(conn, %{
         identity: user_id,
-        name: name,
-        room_name: room_name,
+        name: details.name,
+        room_name: details.room_name,
         token: token,
         url: livekit_url()
       })

@@ -40,9 +40,20 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
       when is_binary(user_id) and user_id != "" and is_binary(channel_id) and channel_id != "" do
     if Regex.match?(@uuid_pattern, channel_id) do
       case authz_mode() do
-        "allow_authenticated" -> {:ok, room_name(channel_id), user_id, true}
-        "servers_api" -> authorize_with_servers(user_id, channel_id, authorization_header)
-        _ -> {:error, :not_configured}
+        "allow_authenticated" ->
+          {:ok, room_name(channel_id), user_id, true}
+
+        "servers_api" ->
+          case authorize_with_servers(user_id, channel_id, authorization_header) do
+            {:ok, room_name, name, can_publish, _server_id} ->
+              {:ok, room_name, name, can_publish}
+
+            error ->
+              error
+          end
+
+        _ ->
+          {:error, :not_configured}
       end
     else
       {:error, :forbidden}
@@ -79,7 +90,8 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
             can_publish = Map.get(response, "muted") != true
 
             {:ok, room_name(channel_id),
-             if(is_binary(name) and name != "", do: name, else: user_id), can_publish}
+             if(is_binary(name) and name != "", do: name, else: user_id), can_publish,
+             Map.get(response, "server_id")}
 
           _ ->
             {:error, :forbidden}
@@ -90,6 +102,44 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
 
       _ ->
         {:error, :not_configured}
+    end
+  end
+
+  @spec authorize_with_details(String.t(), String.t(), String.t() | nil) ::
+          {:ok, map()} | {:error, atom()}
+  def authorize_with_details(user_id, channel_id, authorization_header \\ nil)
+
+  def authorize_with_details(user_id, _channel_id, _authorization_header)
+      when not is_binary(user_id) or user_id == "",
+      do: {:error, :forbidden}
+
+  def authorize_with_details(user_id, channel_id, authorization_header) do
+    with {:ok, room_name, name, can_publish, server_id} <-
+           authorize_details(user_id, channel_id, authorization_header) do
+      {:ok,
+       %{
+         room_name: room_name,
+         name: name,
+         can_publish: can_publish,
+         server_id: server_id
+       }}
+    end
+  end
+
+  defp authorize_details(user_id, channel_id, authorization_header) do
+    if Regex.match?(@uuid_pattern, channel_id) do
+      case authz_mode() do
+        "allow_authenticated" ->
+          {:ok, room_name(channel_id), user_id, true, nil}
+
+        "servers_api" ->
+          authorize_with_servers(user_id, channel_id, authorization_header)
+
+        _ ->
+          {:error, :not_configured}
+      end
+    else
+      {:error, :forbidden}
     end
   end
 end

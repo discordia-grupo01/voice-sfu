@@ -30,4 +30,10 @@ defmodule DiscordiaSignalingWeb.VoiceChannel do
 
   def handle_in(_type, _payload, socket),
     do: {:reply, {:error, %{reason: "unsupported_signal"}}, socket}
+
+  @impl true
+  def handle_info({:voice_presence, event}, socket) do
+    push(socket, event["event_type"], event)
+    {:noreply, socket}
+  end
 end

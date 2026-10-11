@@ -5,16 +5,19 @@ defmodule DiscordiaSignalingWeb.RouterTest do
   import Plug.Conn, only: [put_req_header: 3]
 
   alias DiscordiaSignaling.TestHelpers
+  alias DiscordiaSignaling.Voice.VoiceSessionRegistry
   alias DiscordiaSignalingWeb.Router
 
   setup do
     previous_secret = System.get_env("JWT_SECRET")
     previous_mode = System.get_env("VOICE_AUTHZ_MODE")
     previous_servers = Application.get_env(:discordia_signaling, :servers)
+    previous_result = Application.get_env(:discordia_signaling, :test_room_service_result)
     TestHelpers.put_livekit_config()
 
     System.put_env("JWT_SECRET", "jwt-secret")
     System.put_env("VOICE_AUTHZ_MODE", "allow_authenticated")
+    Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
 
     on_exit(fn ->
       if previous_secret,
@@ -29,6 +32,12 @@ defmodule DiscordiaSignalingWeb.RouterTest do
         Application.put_env(:discordia_signaling, :servers, previous_servers)
       else
         Application.delete_env(:discordia_signaling, :servers)
+      end
+
+      if previous_result do
+        Application.put_env(:discordia_signaling, :test_room_service_result, previous_result)
+      else
+        Application.delete_env(:discordia_signaling, :test_room_service_result)
       end
     end)
 
@@ -153,5 +162,35 @@ defmodule DiscordiaSignalingWeb.RouterTest do
     assert body["name"] == "user-77"
 
     assert :ok == Task.await(server_task, 5_000)
+  end
+
+  test "end to end returns the authenticated server voice presence snapshot" do
+    room = "voice:550e8400-e29b-41d4-a716-446655440000"
+    user_id = "e2e-user"
+    server_id = "e2e-server"
+
+    assert {:ok, nil} =
+             VoiceSessionRegistry.switch(user_id, room, "Ada", server_id)
+
+    conn =
+      conn(:get, "/api/voice/participants?server_id=" <> server_id)
+      |> put_req_header("x-user-id", user_id)
+      |> Router.call(Router.init([]))
+
+    assert conn.status == 200
+
+    assert Jason.decode!(conn.resp_body) == %{
+             "server_id" => server_id,
+             "channels" => [
+               %{
+                 "channel_id" => "550e8400-e29b-41d4-a716-446655440000",
+                 "participants" => [
+                   %{"name" => "Ada", "participant_id" => user_id}
+                 ]
+               }
+             ]
+           }
+
+    assert :ok = VoiceSessionRegistry.leave(user_id, room)
   end
 end

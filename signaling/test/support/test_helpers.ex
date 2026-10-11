@@ -36,6 +36,10 @@ defmodule DiscordiaSignaling.TestHelpers do
 end
 
 defmodule DiscordiaSignaling.TestLiveKitRoomService do
+  def active_participants do
+    Application.get_env(:discordia_signaling, :test_active_participants, {:ok, []})
+  end
+
   def remove_participant(_room_name, _identity) do
     Application.get_env(:discordia_signaling, :test_room_service_result, :ok)
   end
@@ -47,5 +51,19 @@ defmodule DiscordiaSignaling.TestLiveKitRoomService do
   def set_publish_permission(room_name, identity, can_publish) do
     send(self(), {:publish_permission, room_name, identity, can_publish})
     Application.get_env(:discordia_signaling, :test_room_service_result, :ok)
+  end
+end
+
+defmodule DiscordiaSignaling.TestVoicePresencePublisher do
+  def publish(event) do
+    case Application.get_env(:discordia_signaling, :test_presence_recipient) do
+      recipient when is_pid(recipient) ->
+        send(recipient, {:voice_presence_published, event})
+
+      _ ->
+        :ok
+    end
+
+    :ok
   end
 end

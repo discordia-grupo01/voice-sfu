@@ -8,6 +8,14 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomServiceTest do
     assert {:error, :invalid_input} = LiveKitRoomService.remove_participant("room-1", "")
   end
 
+  test "lists active participants from LiveKit rooms" do
+    {result, _requests} = capture_list_request()
+
+    assert {:ok, [participant]} = result
+    assert participant.identity == "user-1"
+    assert participant.room_name == "voice:channel-1"
+  end
+
   test "rejects an unconfigured LiveKit service" do
     previous = Application.get_env(:discordia_signaling, :livekit)
     Application.put_env(:discordia_signaling, :livekit, api_key: "", api_secret: "")
@@ -120,6 +128,51 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomServiceTest do
     request = Task.await(task, 5_000)
     restore_livekit_config(previous)
     {result, request}
+  end
+
+  defp capture_list_request do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+    {:ok, port} = :inet.port(listen_socket)
+    previous = Application.get_env(:discordia_signaling, :livekit)
+
+    Application.put_env(:discordia_signaling, :livekit,
+      api_key: "test-key",
+      api_secret: "test-secret",
+      url: "http://localhost:#{port}"
+    )
+
+    task =
+      Task.async(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        list_rooms_request = recv_request(socket, "")
+        send_json(socket, %{"rooms" => [%{"name" => "voice:channel-1"}]})
+        :gen_tcp.close(socket)
+
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        list_participants_request = recv_request(socket, "")
+        send_json(socket, %{"participants" => [%{"identity" => "user-1", "name" => "Ada"}]})
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+        [list_rooms_request, list_participants_request]
+      end)
+
+    result = LiveKitRoomService.active_participants()
+    requests = Task.await(task, 5_000)
+    restore_livekit_config(previous)
+    {result, requests}
+  end
+
+  defp send_json(socket, body) do
+    encoded = Jason.encode!(body)
+
+    response =
+      "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " <>
+        Integer.to_string(byte_size(encoded)) <>
+        "\r\nConnection: close\r\n\r\n" <> encoded
+
+    :ok = :gen_tcp.send(socket, response)
   end
 
   defp recv_request(socket, buffer) do

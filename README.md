@@ -61,6 +61,26 @@ Phoenix consume del exchange `discordia.events` (cola `VOICE_EVENTS_QUEUE`, por 
 
 Una sala o participante que LiveKit ya no tiene cuenta como éxito. Si LiveKit no responde, el mensaje se devuelve a la cola (nack con requeue) y se reintenta entero; repetir la salida o el cierre es idempotente. Los payloads inválidos se descartan con ack. Los contratos están en `discordia-events_contract` (`channels/events.go`, `servers/events.go`).
 
+Cada réplica de signaling usa una cola RabbitMQ propia, derivada de
+`VOICE_EVENTS_QUEUE` y `VOICE_INSTANCE_ID`, para que todas las réplicas reciban
+los eventos de control y presencia. Los eventos
+`voice.participant_joined`/`voice.participant_left` se reaplican de forma
+idempotente en el registro local usando `occurred_at`; PubSub sólo distribuye
+actualizaciones dentro del nodo. Esto replica el estado de signaling, no el
+media plane: LiveKit continúa siendo responsable de WebRTC, RTP y RTCP.
+
+Al arrancar, una réplica no depende de eventos históricos: consulta a LiveKit
+con `ListRooms` y `ListParticipants`, reconstruye su registro local y repite la
+reconciliación periódicamente. Si LiveKit está caído, conserva el proceso vivo,
+registra el error y reintenta. Esto recupera los participantes conectados en
+ese momento; no recupera llamadas ya terminadas, porque no forman parte del
+estado activo.
+
+En local, cada réplica debe usar un `VOICE_INSTANCE_ID` distinto. El valor de
+`.env.example` (`local-signaling-1`) es sólo para una instancia; al escalar
+manualmente hay que sobrescribirlo por réplica para que RabbitMQ no comparta la
+misma cola entre procesos.
+
 El contrato de acceso a LiveKit contiene `identity`, `room_name`, `token` y `url`. `room_name` no es entrada del cliente: Phoenix lo deriva del canal autorizado y firma el JWT con `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET`.
 
 ## Estructura

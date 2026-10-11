@@ -13,7 +13,12 @@ config :discordia_signaling, :servers,
 config :discordia_signaling, :events,
   rabbitmq_url: System.get_env("RABBITMQ_URL", ""),
   exchange: System.get_env("EVENTS_EXCHANGE", "discordia.events"),
-  queue: System.get_env("VOICE_EVENTS_QUEUE", "voice.signaling")
+  queue: System.get_env("VOICE_EVENTS_QUEUE", "voice.signaling"),
+  instance_id:
+    System.get_env("VOICE_INSTANCE_ID") ||
+      System.get_env("FLY_ALLOC_ID") ||
+      System.get_env("HOSTNAME") ||
+      "default"
 
 if config_env() == :prod do
   port = String.to_integer(System.get_env("PORT", "4000"))

@@ -10,7 +10,9 @@ defmodule DiscordiaSignalingWeb.VoiceTokenControllerTest do
   setup do
     TestHelpers.put_livekit_config()
     previous_mode = System.get_env("VOICE_AUTHZ_MODE")
+    previous_result = Application.get_env(:discordia_signaling, :test_room_service_result)
     System.put_env("VOICE_AUTHZ_MODE", "allow_authenticated")
+    Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
     VoiceSessionRegistry.leave("user-1", "voice:550e8400-e29b-41d4-a716-446655440000")
     VoiceSessionRegistry.leave("user-1", "voice:650e8400-e29b-41d4-a716-446655440000")
 
@@ -18,6 +20,12 @@ defmodule DiscordiaSignalingWeb.VoiceTokenControllerTest do
       if previous_mode,
         do: System.put_env("VOICE_AUTHZ_MODE", previous_mode),
         else: System.delete_env("VOICE_AUTHZ_MODE")
+
+      if previous_result do
+        Application.put_env(:discordia_signaling, :test_room_service_result, previous_result)
+      else
+        Application.delete_env(:discordia_signaling, :test_room_service_result)
+      end
     end)
 
     :ok

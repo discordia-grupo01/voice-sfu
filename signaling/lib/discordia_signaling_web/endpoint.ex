@@ -6,6 +6,11 @@ defmodule DiscordiaSignalingWeb.Endpoint do
     longpoll: false
   )
 
+  socket("/voice/socket", DiscordiaSignalingWeb.UserSocket,
+    websocket: true,
+    longpoll: false
+  )
+
   plug(Plug.RequestId)
 
   plug(Plug.Parsers,

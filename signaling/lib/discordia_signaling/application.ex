@@ -9,6 +9,8 @@ defmodule DiscordiaSignaling.Application do
       [
         {Phoenix.PubSub, name: DiscordiaSignaling.PubSub},
         DiscordiaSignaling.Voice.VoiceSessionRegistry,
+        DiscordiaSignaling.Voice.VoicePresenceReconciler,
+        presence_consumer(),
         event_consumer(),
         DiscordiaSignalingWeb.Endpoint
       ]
@@ -31,7 +33,25 @@ defmodule DiscordiaSignaling.Application do
     if url == "" do
       nil
     else
-      {DiscordiaSignaling.Events.MutingConsumer, config}
+      {DiscordiaSignaling.Events.MutingConsumer,
+       Keyword.put(config, :queue, queue_name(config, "commands"))}
     end
+  end
+
+  defp presence_consumer do
+    config = Application.get_env(:discordia_signaling, :events, [])
+    url = Keyword.get(config, :rabbitmq_url, "")
+
+    if url == "" do
+      nil
+    else
+      {DiscordiaSignaling.Events.PresenceConsumer,
+       Keyword.put(config, :queue, queue_name(config, "presence"))}
+    end
+  end
+
+  defp queue_name(config, suffix) do
+    Keyword.get(config, :queue, "voice.signaling") <>
+      "." <> Keyword.get(config, :instance_id, "default") <> "." <> suffix
   end
 end
