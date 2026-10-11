@@ -1,5 +1,5 @@
 defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
-  @moduledoc "Tracks the single active voice room for each authenticated identity."
+  @moduledoc "Tracks active voice rooms and publishes participant presence changes."
 
   use GenServer
 
@@ -12,7 +12,14 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   @spec switch(String.t(), String.t()) ::
           {:ok, String.t() | nil} | {:error, atom()}
   def switch(identity, room_name) when is_binary(identity) and is_binary(room_name) do
-    GenServer.call(__MODULE__, {:switch, identity, room_name})
+    switch(identity, room_name, identity, nil)
+  end
+
+  @spec switch(String.t(), String.t(), String.t(), String.t() | nil) ::
+          {:ok, String.t() | nil} | {:error, atom()}
+  def switch(identity, room_name, display_name, server_id)
+      when is_binary(identity) and is_binary(room_name) and is_binary(display_name) do
+    GenServer.call(__MODULE__, {:switch, identity, room_name, display_name, server_id})
   end
 
   @spec leave(String.t(), String.t()) :: :ok | {:error, atom()}
@@ -30,17 +37,32 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     GenServer.call(__MODULE__, {:active_room, identity})
   end
 
+  @spec participants(String.t() | nil) :: [map()]
+  def participants(server_id \\ nil) do
+    GenServer.call(__MODULE__, {:participants, server_id})
+  end
+
   @impl true
   def init(state), do: {:ok, state}
 
   @impl true
-  def handle_call({:switch, identity, room_name}, _from, state) do
-    previous_room = Map.get(state, identity)
+  def handle_call({:switch, identity, room_name, display_name, server_id}, _from, state) do
+    previous = Map.get(state, identity)
+    previous_room = room_name(previous)
 
     case disconnect_previous(previous_room, room_name, identity) do
       :ok ->
-        broadcast_replacement(previous_room, room_name, identity)
-        {:reply, {:ok, previous_room}, Map.put(state, identity, room_name)}
+        participant = %{room_name: room_name, server_id: server_id, name: display_name}
+
+        if previous_room == room_name do
+          {:reply, {:ok, previous_room}, Map.put(state, identity, participant)}
+        else
+          state = remove_participant(state, identity, previous)
+          if previous, do: broadcast_presence(:left, identity, previous)
+          broadcast_replacement(previous, room_name, identity)
+          broadcast_presence(:joined, identity, participant)
+          {:reply, {:ok, previous_room}, Map.put(state, identity, participant)}
+        end
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -49,9 +71,10 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
 
   def handle_call({:leave, identity, room_name}, _from, state) do
     case Map.get(state, identity) do
-      ^room_name ->
+      %{room_name: ^room_name} = participant ->
         case room_service().remove_participant(room_name, identity) do
           result when result in [:ok, {:error, :not_found}] ->
+            broadcast_presence(:left, identity, participant)
             {:reply, :ok, Map.delete(state, identity)}
 
           {:error, reason} ->
@@ -66,7 +89,16 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   def handle_call({:close_room, room_name}, _from, state) do
     case room_service().delete_room(room_name) do
       result when result in [:ok, {:error, :not_found}] ->
-        {:reply, :ok, Map.reject(state, fn {_identity, active} -> active == room_name end)}
+        {removed, remaining} =
+          state
+          |> Enum.split_with(fn {_identity, participant} -> room_name(participant) == room_name end)
+          |> then(fn {removed, remaining} -> {removed, Map.new(remaining)} end)
+
+        Enum.each(removed, fn {identity, participant} ->
+          broadcast_presence(:left, identity, participant)
+        end)
+
+        {:reply, :ok, remaining}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -74,7 +106,27 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   end
 
   def handle_call({:active_room, identity}, _from, state) do
-    {:reply, Map.get(state, identity), state}
+    {:reply, room_name(Map.get(state, identity)), state}
+  end
+
+  def handle_call({:participants, server_id}, _from, state) do
+    participants =
+      state
+      |> Enum.flat_map(fn {identity, participant} ->
+        if server_id == nil or participant.server_id == server_id do
+          [
+            %{
+              "participant_id" => identity,
+              "name" => participant.name,
+              "room_id" => room_id(participant.room_name)
+            }
+          ]
+        else
+          []
+        end
+      end)
+
+    {:reply, participants, state}
   end
 
   defp disconnect_previous(nil, _room_name, _identity), do: :ok
@@ -89,16 +141,60 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
 
   defp broadcast_replacement(nil, _room_name, _identity), do: :ok
 
-  defp broadcast_replacement(previous_room, room_name, _identity) when previous_room == room_name,
+  defp broadcast_replacement(%{room_name: previous_room}, room_name, _identity)
+       when previous_room == room_name,
     do: :ok
 
-  defp broadcast_replacement(previous_room, room_name, identity) do
+  defp broadcast_replacement(%{room_name: previous_room}, room_name, identity) do
     Phoenix.PubSub.broadcast(
       @pubsub,
       "voice:#{identity}",
       {:voice_session_replaced, identity, previous_room, room_name}
     )
   end
+
+  defp broadcast_presence(action, identity, participant) do
+    event_type = if action == :joined, do: "voice.participant_joined", else: "voice.participant_left"
+
+    event = %{
+      "event_id" => uuid(),
+      "event_type" => event_type,
+      "server_id" => participant.server_id,
+      "room_id" => room_id(participant.room_name),
+      "participant_id" => identity,
+      "name" => participant.name,
+      "occurred_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+
+    Phoenix.PubSub.broadcast(@pubsub, "voice:#{room_id(participant.room_name)}", {:voice_presence, event})
+    Phoenix.PubSub.broadcast(@pubsub, "voice_server:#{participant.server_id}", {:voice_presence, event})
+    publisher().publish(event)
+  end
+
+  defp publisher do
+    Application.get_env(
+      :discordia_signaling,
+      :voice_presence_publisher,
+      DiscordiaSignaling.Voice.VoicePresencePublisher
+    )
+  end
+
+  defp remove_participant(state, _identity, nil), do: state
+  defp remove_participant(state, identity, _participant), do: Map.delete(state, identity)
+
+  defp room_name(nil), do: nil
+  defp room_name(%{room_name: room_name}), do: room_name
+  defp room_name(room_name) when is_binary(room_name), do: room_name
+
+  defp room_id("voice:" <> room_id), do: room_id
+  defp room_id(room_name), do: room_name
+
+  defp uuid do
+    <<a::32, b::16, c::16, d::16, e::48>> = :crypto.strong_rand_bytes(16)
+    "#{hex(a, 8)}-#{hex(b, 4)}-#{hex(c, 4)}-#{hex(d, 4)}-#{hex(e, 12)}"
+  end
+
+  defp hex(value, size), do: value |> Integer.to_string(16) |> String.pad_leading(size, "0")
 
   defp room_service do
     Application.get_env(

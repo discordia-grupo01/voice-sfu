@@ -43,6 +43,13 @@ the LiveKit room name as `voice:<channel_id>` and forwards the validated JWT to
 response supplies the user's replicated public profile name, which Phoenix
 includes in the LiveKit token `name` claim.
 
+`GET /api/voice/participants?server_id=...` returns the current participant
+snapshot grouped by visible voice channel. In `servers_api` mode the request
+is authorized through `servers` before the snapshot is returned. Presence
+changes are also pushed to joined Phoenix voice topics and published as
+`voice.participant_joined` / `voice.participant_left`. The public WebSocket
+endpoint is `/voice/socket` (the legacy local `/socket` endpoint remains).
+
 `DiscordiaSignaling.Events.MutingConsumer` binds `servers.member_muted`,
 `servers.member_unmuted`, `servers.channel_access_revoked`,
 `servers.channel_deleted` and `servers.server_deleted`. Mute events toggle
