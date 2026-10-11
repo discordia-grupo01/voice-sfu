@@ -1,6 +1,15 @@
 defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
   @moduledoc "Applies participant and room controls to LiveKit rooms."
 
+  @spec active_participants() :: {:ok, [map()]} | {:error, atom()}
+  def active_participants do
+    with {:ok, config} <- livekit_config(),
+         {:ok, rooms} <- request_json(config, "/twirp/livekit.RoomService/ListRooms", %{}),
+         {:ok, participants} <- list_room_participants(config, rooms) do
+      {:ok, participants}
+    end
+  end
+
   @spec set_publish_permission(String.t(), String.t(), boolean()) :: :ok | {:error, atom()}
   def set_publish_permission(room_name, identity, can_publish)
       when is_binary(room_name) and room_name != "" and is_binary(identity) and identity != "" and
@@ -58,7 +67,11 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
 
   # LiveKit only lets roomAdmin act on the room named in the grant, and
   # DeleteRoom also needs roomCreate.
-  defp request(config, path, body) do
+  defp request(config, path, body), do: request(config, path, body, false)
+
+  defp request_json(config, path, body), do: request(config, path, body, true)
+
+  defp request(config, path, body, decode_response?) do
     now = System.system_time(:second)
 
     claims = %{
@@ -81,10 +94,62 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
            [{:timeout, 5_000}],
            body_format: :binary
          ) do
-      {:ok, {{_, 200, _}, _headers, _body}} -> :ok
-      {:ok, {{_, 404, _}, _headers, _body}} -> {:error, :not_found}
-      _ -> {:error, :unavailable}
+      {:ok, {{_, 200, _}, _headers, response_body}} when decode_response? ->
+        Jason.decode(response_body)
+
+      {:ok, {{_, 200, _}, _headers, _body}} ->
+        :ok
+
+      {:ok, {{_, 404, _}, _headers, _body}} ->
+        {:error, :not_found}
+
+      _ ->
+        {:error, :unavailable}
     end
+  end
+
+  defp list_room_participants(config, %{"rooms" => rooms}) when is_list(rooms) do
+    rooms
+    |> Enum.reduce_while({:ok, []}, fn
+      %{"name" => room_name}, {:ok, participants} ->
+        case request_json(
+               config,
+               "/twirp/livekit.RoomService/ListParticipants",
+               %{"room" => room_name}
+             ) do
+          {:ok, %{"participants" => room_participants}} when is_list(room_participants) ->
+            {:cont, {:ok, participants ++ normalize_participants(room_name, room_participants)}}
+
+          {:ok, _response} ->
+            {:halt, {:error, :invalid_response}}
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
+        end
+
+      _room, _acc ->
+        {:halt, {:error, :invalid_response}}
+    end)
+  end
+
+  defp list_room_participants(_config, _response), do: {:error, :invalid_response}
+
+  defp normalize_participants(room_name, participants) do
+    Enum.flat_map(participants, fn
+      %{"identity" => identity, "name" => name} when is_binary(identity) and identity != "" ->
+        [
+          %{
+            room_name: room_name,
+            identity: identity,
+            name: if(is_binary(name) and name != "", do: name, else: identity),
+            server_id: nil,
+            occurred_at: DateTime.utc_now() |> DateTime.to_iso8601()
+          }
+        ]
+
+      _participant ->
+        []
+    end)
   end
 
   defp api_url(url) do

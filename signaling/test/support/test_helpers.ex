@@ -36,6 +36,10 @@ defmodule DiscordiaSignaling.TestHelpers do
 end
 
 defmodule DiscordiaSignaling.TestLiveKitRoomService do
+  def active_participants do
+    Application.get_env(:discordia_signaling, :test_active_participants, {:ok, []})
+  end
+
   def remove_participant(_room_name, _identity) do
     Application.get_env(:discordia_signaling, :test_room_service_result, :ok)
   end

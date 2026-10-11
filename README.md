@@ -69,6 +69,13 @@ idempotente en el registro local usando `occurred_at`; PubSub sólo distribuye
 actualizaciones dentro del nodo. Esto replica el estado de signaling, no el
 media plane: LiveKit continúa siendo responsable de WebRTC, RTP y RTCP.
 
+Al arrancar, una réplica no depende de eventos históricos: consulta a LiveKit
+con `ListRooms` y `ListParticipants`, reconstruye su registro local y repite la
+reconciliación periódicamente. Si LiveKit está caído, conserva el proceso vivo,
+registra el error y reintenta. Esto recupera los participantes conectados en
+ese momento; no recupera llamadas ya terminadas, porque no forman parte del
+estado activo.
+
 El contrato de acceso a LiveKit contiene `identity`, `room_name`, `token` y `url`. `room_name` no es entrada del cliente: Phoenix lo deriva del canal autorizado y firma el JWT con `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET`.
 
 ## Estructura

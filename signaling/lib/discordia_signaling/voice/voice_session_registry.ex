@@ -52,6 +52,11 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     GenServer.cast(__MODULE__, {:reconcile_participant, participant})
   end
 
+  @spec reconcile_snapshot([map()]) :: :ok
+  def reconcile_snapshot(participants) when is_list(participants) do
+    GenServer.cast(__MODULE__, {:reconcile_snapshot, participants})
+  end
+
   @impl true
   def init(state), do: {:ok, state}
 
@@ -169,6 +174,33 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   end
 
   def handle_cast({:reconcile_participant, _participant}, state), do: {:noreply, state}
+
+  @impl true
+  def handle_cast({:reconcile_snapshot, participants}, state) do
+    active_identities = MapSet.new(participants, & &1.identity)
+
+    state =
+      state
+      |> Enum.reject(fn {identity, _participant} ->
+        not MapSet.member?(active_identities, identity)
+      end)
+      |> Map.new()
+
+    state =
+      Enum.reduce(participants, state, fn participant, state ->
+        identity = participant.identity
+        current = Map.get(state, identity)
+
+        Map.put(state, identity, %{
+          room_name: participant.room_name,
+          server_id: participant.server_id || (current && current.server_id),
+          name: participant.name,
+          occurred_at: DateTime.utc_now() |> DateTime.to_iso8601()
+        })
+      end)
+
+    {:noreply, state}
+  end
 
   defp disconnect_previous(nil, _room_name, _identity), do: :ok
   defp disconnect_previous(room_name, room_name, _identity), do: :ok

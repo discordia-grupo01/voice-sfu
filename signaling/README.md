@@ -60,6 +60,15 @@ and out-of-order deliveries do not overwrite newer state. Control events use
 the same per-instance queue strategy; PubSub remains a local delivery
 optimization and is not the replication mechanism.
 
+When a node starts, `VoicePresenceReconciler` asks LiveKit for the current
+rooms and participants and rebuilds the local snapshot. It retries while
+LiveKit is unavailable and repeats the reconciliation periodically, removing
+participants that are no longer connected. LiveKit does not expose the
+application `server_id` in this query; an existing local `server_id` is
+preserved, while a newly reconstructed participant is visible only in
+unfiltered snapshots until the next authenticated access flow supplies the
+server context.
+
 `DiscordiaSignaling.Events.MutingConsumer` binds `servers.member_muted`,
 `servers.member_unmuted`, `servers.channel_access_revoked`,
 `servers.channel_deleted` and `servers.server_deleted`. Mute events toggle

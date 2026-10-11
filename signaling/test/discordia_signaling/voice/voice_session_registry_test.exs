@@ -15,6 +15,8 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
     )
 
     Application.put_env(:discordia_signaling, :test_presence_recipient, self())
+    VoiceSessionRegistry.reconcile_snapshot([])
+    VoiceSessionRegistry.participants()
     VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
     VoiceSessionRegistry.leave("registry-user-1", "voice:room-2")
 
