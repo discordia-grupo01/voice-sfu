@@ -9,6 +9,8 @@ primary_region = "gru"
   PORT = "4000"
   VOICE_AUTHZ_MODE = "servers_api"
   EVENTS_EXCHANGE = "discordia.events"
+  VOICE_EVENTS_QUEUE = "voice.signaling"
+  VOICE_INSTANCE_ID = "local-signaling-1"
 
 [[services]]
   protocol = "tcp"
