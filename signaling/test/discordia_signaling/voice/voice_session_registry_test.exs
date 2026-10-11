@@ -4,10 +4,19 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
   alias DiscordiaSignaling.Voice.VoiceSessionRegistry
 
   setup do
-    VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
-    VoiceSessionRegistry.leave("registry-user-1", "voice:room-2")
     previous_result = Application.get_env(:discordia_signaling, :test_room_service_result)
     Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
+    previous_publisher = Application.get_env(:discordia_signaling, :voice_presence_publisher)
+
+    Application.put_env(
+      :discordia_signaling,
+      :voice_presence_publisher,
+      DiscordiaSignaling.TestVoicePresencePublisher
+    )
+
+    Application.put_env(:discordia_signaling, :test_presence_recipient, self())
+    VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
+    VoiceSessionRegistry.leave("registry-user-1", "voice:room-2")
 
     on_exit(fn ->
       if previous_result do
@@ -15,6 +24,14 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
       else
         Application.delete_env(:discordia_signaling, :test_room_service_result)
       end
+
+      if previous_publisher do
+        Application.put_env(:discordia_signaling, :voice_presence_publisher, previous_publisher)
+      else
+        Application.delete_env(:discordia_signaling, :voice_presence_publisher)
+      end
+
+      Application.delete_env(:discordia_signaling, :test_presence_recipient)
     end)
 
     :ok
@@ -27,6 +44,25 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
              VoiceSessionRegistry.switch("registry-user-1", "voice:room-2")
 
     assert VoiceSessionRegistry.active_room("registry-user-1") == "voice:room-2"
+  end
+
+  test "publishes a snapshot-compatible event when a participant joins and leaves" do
+    assert {:ok, nil} =
+             VoiceSessionRegistry.switch(
+               "presence-user",
+               "voice:room-1",
+               "Ada",
+               "server-1"
+             )
+
+    assert_receive {:voice_presence_published, %{"event_type" => "voice.participant_joined"}}
+
+    assert [%{"participant_id" => "presence-user", "name" => "Ada", "room_id" => "room-1"}] =
+             VoiceSessionRegistry.participants("server-1")
+
+    assert :ok = VoiceSessionRegistry.leave("presence-user", "voice:room-1")
+    assert_receive {:voice_presence_published, %{"event_type" => "voice.participant_left"}}
+    assert VoiceSessionRegistry.participants("server-1") == []
   end
 
   test "does not remove a newer room when an older room leaves" do

@@ -49,3 +49,11 @@ defmodule DiscordiaSignaling.TestLiveKitRoomService do
     Application.get_env(:discordia_signaling, :test_room_service_result, :ok)
   end
 end
+
+defmodule DiscordiaSignaling.TestVoicePresencePublisher do
+  def publish(event) do
+    recipient = Application.get_env(:discordia_signaling, :test_presence_recipient, self())
+    send(recipient, {:voice_presence_published, event})
+    :ok
+  end
+end
