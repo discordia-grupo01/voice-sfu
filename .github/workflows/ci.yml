@@ -1,13 +1,19 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Run Tests
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        working-directory: signaling
+
     services:
       postgres:
         image: postgres:16-alpine
@@ -21,20 +27,105 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
+
+    env:
+      MIX_ENV: test
+      LIVEKIT_URL: ws://localhost:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: devsecret
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-      - name: Chequeo de formato (gofmt)
-        run: |
-          UNFORMATTED=$(gofmt -l .)
-          if [ -n "$UNFORMATTED" ]; then
-            echo "Archivos sin formatear:"
-            echo "$UNFORMATTED"
-            exit 1
-          fi
 
-      - run: go build ./...
-      - run: go vet ./...
-      - run: go test ./... -cover
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.17.3'
+          otp-version: '27'
+
+      - name: Iniciar LiveKit
+        run: |
+          docker run -d \
+            --name livekit \
+            --network host \
+            -p 7880:7880 \
+            livekit/livekit-server:latest \
+            --dev
+
+      - name: Instalar dependencias
+        run: mix deps.get
+
+      - name: Chequeo de formato
+        run: mix format --check-formatted
+
+      - name: Compilar
+        run: mix compile --warnings-as-errors
+
+      - name: Ejecutar tests
+        run: mix test --cover
+
+  publish-image:
+    name: Publish Signaling Image
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Construir y publicar imagen de signaling
+        env:
+          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/discordia-signaling
+        run: |
+          docker build \
+            --file signaling/Dockerfile \
+            --tag "$IMAGE:${GITHUB_SHA}" \
+            signaling
+          docker push "$IMAGE:${GITHUB_SHA}"
+
+  deploy-staging:
+    name: Deploy to Staging (Fly.io)
+    needs: publish-image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    environment: staging
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signaling
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Desplegar en Staging
+        run: |
+          test -n "$FLY_API_TOKEN" || { echo "Falta FLY_API_TOKEN_STAGING en el entorno staging o en Repository secrets"; exit 1; }
+          flyctl auth whoami
+          flyctl deploy --config fly.staging.toml --image "${{ secrets.DOCKERHUB_USERNAME }}/discordia-signaling:${GITHUB_SHA}"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_STAGING }}
+
+  deploy-production:
+    name: Deploy to Production (Fly.io)
+    needs: publish-image
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signaling
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Desplegar en Produccion
+        run: |
+          test -n "$FLY_API_TOKEN" || { echo "Falta FLY_API_TOKEN_PRODUCTION en el entorno production o en Repository secrets"; exit 1; }
+          flyctl auth whoami
+          flyctl deploy --config fly.production.toml --image "${{ secrets.DOCKERHUB_USERNAME }}/discordia-signaling:${GITHUB_SHA}"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_PRODUCTION }}

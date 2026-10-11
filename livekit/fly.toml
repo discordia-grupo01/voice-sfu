@@ -1,0 +1,32 @@
+app = "discordia-livekit"
+primary_region = "gru"
+
+[build]
+  image = "livekit/livekit-server:latest"
+
+[env]
+  LIVEKIT_CONFIG = "/etc/livekit.yaml"
+
+# Puerto de señalización WebSocket y API
+[[services]]
+  protocol = "tcp"
+  internal_port = 7880
+
+  [[services.ports]]
+    port = 7880
+
+# Fallback WebRTC TCP
+[[services]]
+  protocol = "tcp"
+  internal_port = 7881
+
+  [[services.ports]]
+    port = 7881
+
+# Rango de puertos UDP para WebRTC Media
+[[services]]
+  protocol = "udp"
+  internal_port = 50000
+
+  [[services.ports]]
+    port = 50000
