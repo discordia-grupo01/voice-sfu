@@ -25,7 +25,8 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
 - `VOICE_EVENTS_QUEUE`: durable queue for this signaling instance, defaults to `voice.signaling`.
 - `VOICE_INSTANCE_ID`: stable identifier used to suffix per-instance RabbitMQ
   queues. Defaults to `FLY_ALLOC_ID`, `HOSTNAME` or `default`; set it explicitly
-  when running multiple local replicas.
+  when running multiple local replicas. Do not reuse the same value across
+  simultaneously running replicas.
 - `VOICE_AUTHZ_MODE`: `servers_api` for membership and `VIEW_CHANNELS` checks; `allow_authenticated` is local-only.
 
 ## CI/CD con Fly.io
@@ -87,3 +88,21 @@ La suite esta organizada en `test/discordia_signaling/voice` para dominio y
 `test/discordia_signaling_web` para Plug, controllers, Channels y rutas. El
 comando muestra el porcentaje por modulo y falla si la cobertura total baja de
 70%, configurado en `mix.exs`.
+
+La prueba de integración de RabbitMQ está en
+`test/integration/voice_presence_rabbitmq_test.exs`. Se ejecuta sólo cuando
+`RABBITMQ_URL` está definido; publica un evento real en `discordia.events`,
+lo consume otra conexión y verifica la actualización local para join y leave.
+Para ejecutarla localmente:
+
+```bash
+$env:RABBITMQ_URL = "amqp://guest:guest@localhost:5672"
+mix test test/integration/voice_presence_rabbitmq_test.exs
+```
+
+Las pruebas marcadas como `integration` se excluyen de `mix test` por defecto.
+Para incluirlas explícitamente se usa:
+
+```bash
+mix test --include integration test/integration/voice_presence_rabbitmq_test.exs
+```

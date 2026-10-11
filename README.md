@@ -76,6 +76,11 @@ registra el error y reintenta. Esto recupera los participantes conectados en
 ese momento; no recupera llamadas ya terminadas, porque no forman parte del
 estado activo.
 
+En local, cada réplica debe usar un `VOICE_INSTANCE_ID` distinto. El valor de
+`.env.example` (`local-signaling-1`) es sólo para una instancia; al escalar
+manualmente hay que sobrescribirlo por réplica para que RabbitMQ no comparta la
+misma cola entre procesos.
+
 El contrato de acceso a LiveKit contiene `identity`, `room_name`, `token` y `url`. `room_name` no es entrada del cliente: Phoenix lo deriva del canal autorizado y firma el JWT con `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET`.
 
 ## Estructura

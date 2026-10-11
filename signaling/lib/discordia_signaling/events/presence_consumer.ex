@@ -14,7 +14,9 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
   @routing_keys ["voice.participant_joined", "voice.participant_left"]
   @default_exchange "discordia.events"
 
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  end
 
   @impl true
   def init(opts) do

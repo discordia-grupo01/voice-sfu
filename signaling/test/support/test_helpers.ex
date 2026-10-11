@@ -56,8 +56,14 @@ end
 
 defmodule DiscordiaSignaling.TestVoicePresencePublisher do
   def publish(event) do
-    recipient = Application.get_env(:discordia_signaling, :test_presence_recipient, self())
-    send(recipient, {:voice_presence_published, event})
+    case Application.get_env(:discordia_signaling, :test_presence_recipient) do
+      recipient when is_pid(recipient) ->
+        send(recipient, {:voice_presence_published, event})
+
+      _ ->
+        :ok
+    end
+
     :ok
   end
 end
