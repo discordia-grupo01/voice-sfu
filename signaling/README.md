@@ -23,6 +23,9 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
 - `RABBITMQ_URL`: broker URL for servers events (mute, channel access revoked, channel and server deleted); when empty, the consumer is disabled.
 - `EVENTS_EXCHANGE`: RabbitMQ topic exchange, defaults to `discordia.events`.
 - `VOICE_EVENTS_QUEUE`: durable queue for this signaling instance, defaults to `voice.signaling`.
+- `VOICE_INSTANCE_ID`: stable identifier used to suffix per-instance RabbitMQ
+  queues. Defaults to `FLY_ALLOC_ID`, `HOSTNAME` or `default`; set it explicitly
+  when running multiple local replicas.
 - `VOICE_AUTHZ_MODE`: `servers_api` for membership and `VIEW_CHANNELS` checks; `allow_authenticated` is local-only.
 
 ## CI/CD con Fly.io
@@ -49,6 +52,13 @@ is authorized through `servers` before the snapshot is returned. Presence
 changes are also pushed to joined Phoenix voice topics and published as
 `voice.participant_joined` / `voice.participant_left`. The public WebSocket
 endpoint is `/voice/socket` (the legacy local `/socket` endpoint remains).
+
+Each signaling replica consumes presence events through its own queue and
+replays them into its local session registry. Presence snapshots are applied
+only when their `occurred_at` is newer than the local snapshot, so duplicate
+and out-of-order deliveries do not overwrite newer state. Control events use
+the same per-instance queue strategy; PubSub remains a local delivery
+optimization and is not the replication mechanism.
 
 `DiscordiaSignaling.Events.MutingConsumer` binds `servers.member_muted`,
 `servers.member_unmuted`, `servers.channel_access_revoked`,

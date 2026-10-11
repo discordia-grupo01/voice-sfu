@@ -65,6 +65,61 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
     assert VoiceSessionRegistry.participants("server-1") == []
   end
 
+  test "replicates newer presence events and ignores stale events" do
+    user_id = "replicated-user"
+
+    VoiceSessionRegistry.replicate_presence(%{
+      "event_type" => "voice.participant_joined",
+      "event_id" => "remote-join",
+      "occurred_at" => "2026-10-07T12:00:00Z",
+      "server_id" => "server-1",
+      "room_id" => "room-1",
+      "participant_id" => user_id,
+      "name" => "Ada"
+    })
+
+    assert [%{"participant_id" => ^user_id, "room_id" => "room-1"}] =
+             VoiceSessionRegistry.participants("server-1")
+
+    VoiceSessionRegistry.replicate_presence(%{
+      "event_type" => "voice.participant_left",
+      "event_id" => "stale-leave",
+      "occurred_at" => "2026-10-07T11:00:00Z",
+      "server_id" => "server-1",
+      "room_id" => "room-1",
+      "participant_id" => user_id,
+      "name" => "Ada"
+    })
+
+    assert VoiceSessionRegistry.active_room(user_id) == "voice:room-1"
+  end
+
+  test "replicated leave removes the matching current room" do
+    user_id = "replicated-leave-user"
+
+    VoiceSessionRegistry.replicate_presence(%{
+      "event_type" => "voice.participant_joined",
+      "event_id" => "remote-join-2",
+      "occurred_at" => "2026-10-07T12:00:00Z",
+      "server_id" => "server-1",
+      "room_id" => "room-2",
+      "participant_id" => user_id,
+      "name" => "Ada"
+    })
+
+    VoiceSessionRegistry.replicate_presence(%{
+      "event_type" => "voice.participant_left",
+      "event_id" => "remote-leave-2",
+      "occurred_at" => "2026-10-07T12:01:00Z",
+      "server_id" => "server-1",
+      "room_id" => "room-2",
+      "participant_id" => user_id,
+      "name" => "Ada"
+    })
+
+    assert VoiceSessionRegistry.active_room(user_id) == nil
+  end
+
   test "does not remove a newer room when an older room leaves" do
     VoiceSessionRegistry.switch("registry-user-1", "voice:room-1")
     VoiceSessionRegistry.switch("registry-user-1", "voice:room-2")

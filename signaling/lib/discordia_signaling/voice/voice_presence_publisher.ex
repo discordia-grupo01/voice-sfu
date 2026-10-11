@@ -15,8 +15,10 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   end
 
   defp publish_to_broker(url, event) do
-    exchange = Application.get_env(:discordia_signaling, :events, [])[:exchange] ||
-      "discordia.events"
+    exchange =
+      Application.get_env(:discordia_signaling, :events, [])[:exchange] ||
+        "discordia.events"
+
     routing_key = event["event_type"]
 
     with {:ok, connection} <- AMQP.Connection.open(url),

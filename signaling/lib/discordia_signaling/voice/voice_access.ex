@@ -40,7 +40,9 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
       when is_binary(user_id) and user_id != "" and is_binary(channel_id) and channel_id != "" do
     if Regex.match?(@uuid_pattern, channel_id) do
       case authz_mode() do
-        "allow_authenticated" -> {:ok, room_name(channel_id), user_id, true}
+        "allow_authenticated" ->
+          {:ok, room_name(channel_id), user_id, true}
+
         "servers_api" ->
           case authorize_with_servers(user_id, channel_id, authorization_header) do
             {:ok, room_name, name, can_publish, _server_id} ->
@@ -49,7 +51,9 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
             error ->
               error
           end
-        _ -> {:error, :not_configured}
+
+        _ ->
+          {:error, :not_configured}
       end
     else
       {:error, :forbidden}
