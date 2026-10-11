@@ -19,6 +19,8 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
     )
 
     Application.put_env(:discordia_signaling, :test_presence_recipient, self())
+    VoiceSessionRegistry.reconcile_snapshot([])
+    VoiceSessionRegistry.participants()
 
     on_exit(fn ->
       if previous_mode do
