@@ -72,6 +72,20 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomServiceTest do
              video_grant(request)
   end
 
+  test "grants room listing rights without a room scope" do
+    {_result, requests} = capture_list_request()
+
+    assert %{"roomList" => true} = video_grant(Enum.at(requests, 0))
+    refute Map.has_key?(video_grant(Enum.at(requests, 0)), "room")
+  end
+
+  test "grants admin rights to list participants in a room" do
+    {_result, requests} = capture_list_request()
+
+    assert %{"roomAdmin" => true, "room" => "voice:channel-1"} =
+             video_grant(Enum.at(requests, 1))
+  end
+
   test "maps a missing room to not_found" do
     {result, _request} =
       capture_request(404, fn -> LiveKitRoomService.delete_room("voice:channel-1") end)
