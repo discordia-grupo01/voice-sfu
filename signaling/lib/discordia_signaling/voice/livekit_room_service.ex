@@ -103,6 +103,18 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
       {:ok, {{_, 404, _}, _headers, _body}} ->
         {:error, :not_found}
 
+      {:ok, {{_, 400, _}, _headers, _body}} ->
+        {:error, :bad_request}
+
+      {:ok, {{_, 401, _}, _headers, _body}} ->
+        {:error, :unauthorized}
+
+      {:ok, {{_, 403, _}, _headers, _body}} ->
+        {:error, :forbidden}
+
+      {:ok, {{_, 500, _}, _headers, _body}} ->
+        {:error, :internal_server_error}
+
       _ ->
         {:error, :unavailable}
     end
