@@ -1,6 +1,8 @@
 defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
   @moduledoc "Applies participant and room controls to LiveKit rooms."
 
+  @receive_timeout 4_000
+
   @spec active_participants() :: {:ok, [map()]} | {:error, atom()}
   def active_participants do
     with {:ok, config} <- livekit_config(),
@@ -91,7 +93,7 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
     case :httpc.request(
            :post,
            {String.to_charlist(config.url <> path), headers, ~c"application/json", body},
-           [{:timeout, 5_000}],
+           [{:timeout, @receive_timeout}],
            body_format: :binary
          ) do
       {:ok, {{_, 200, _}, _headers, response_body}} when decode_response? ->
