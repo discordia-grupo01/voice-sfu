@@ -4,8 +4,9 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   use GenServer
   require Logger
 
+  alias DiscordiaSignaling.Events.RabbitMQ
+
   @max_buffer 1_000
-  @connect_timeout 3_000
   @min_backoff 1_000
   @max_backoff 30_000
 
@@ -86,7 +87,7 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   defp connect do
     url = broker_url()
 
-    with {:ok, conn} <- AMQP.Connection.open(url, connection_timeout: @connect_timeout) do
+    with {:ok, conn} <- RabbitMQ.open(url) do
       with {:ok, chan} <- AMQP.Channel.open(conn),
            :ok <- AMQP.Exchange.declare(chan, exchange(), :topic, durable: true) do
         {:ok, conn, chan}
