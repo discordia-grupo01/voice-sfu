@@ -65,8 +65,8 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
     end
   end
 
-  # LiveKit only lets roomAdmin act on the room named in the grant, and
-  # DeleteRoom also needs roomCreate.
+  # ListRooms uses the account-level roomList grant. Room-scoped operations
+  # use roomAdmin, and DeleteRoom also needs roomCreate.
   defp request(config, path, body), do: request(config, path, body, false)
 
   defp request_json(config, path, body), do: request(config, path, body, true)
@@ -79,7 +79,7 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
       "sub" => "discordia-signaling",
       "nbf" => now,
       "exp" => now + 60,
-      "video" => %{"roomAdmin" => true, "roomCreate" => true, "room" => body["room"]}
+      "video" => video_grant(path, body)
     }
 
     jwk = JOSE.JWK.from_oct(config.api_secret)
@@ -103,10 +103,31 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
       {:ok, {{_, 404, _}, _headers, _body}} ->
         {:error, :not_found}
 
+      {:ok, {{_, 400, _}, _headers, _body}} ->
+        {:error, :bad_request}
+
+      {:ok, {{_, 401, _}, _headers, _body}} ->
+        {:error, :unauthorized}
+
+      {:ok, {{_, 403, _}, _headers, _body}} ->
+        {:error, :forbidden}
+
+      {:ok, {{_, 500, _}, _headers, _body}} ->
+        {:error, :internal_server_error}
+
       _ ->
         {:error, :unavailable}
     end
   end
+
+  defp video_grant("/twirp/livekit.RoomService/ListRooms", _body),
+    do: %{"roomList" => true}
+
+  defp video_grant("/twirp/livekit.RoomService/DeleteRoom", body),
+    do: %{"roomAdmin" => true, "roomCreate" => true, "room" => body["room"]}
+
+  defp video_grant(_path, body),
+    do: %{"roomAdmin" => true, "room" => body["room"]}
 
   defp list_room_participants(config, %{"rooms" => rooms}) when is_list(rooms) do
     rooms
