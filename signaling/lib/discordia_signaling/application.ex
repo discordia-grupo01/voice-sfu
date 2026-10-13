@@ -8,6 +8,7 @@ defmodule DiscordiaSignaling.Application do
     children =
       [
         {Phoenix.PubSub, name: DiscordiaSignaling.PubSub},
+        DiscordiaSignaling.Voice.VoicePresencePublisher,
         DiscordiaSignaling.Voice.VoiceSessionRegistry,
         DiscordiaSignaling.Voice.VoicePresenceReconciler,
         presence_consumer(),
