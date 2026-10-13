@@ -10,6 +10,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
   use GenServer
   require Logger
 
+  alias DiscordiaSignaling.Events.RabbitMQ
   alias DiscordiaSignaling.Voice.{LiveKitRoomService, VoiceSessionRegistry}
 
   @muted_key "servers.member_muted"
@@ -52,7 +53,12 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
         {:noreply, %{state | connection: connection, channel: channel}}
 
       {:error, reason} ->
-        Logger.warning("voice_muting_consumer_connect_failed", reason: inspect(reason))
+        Logger.warning("voice_muting_consumer_connect_failed",
+          reason: inspect(reason),
+          queue: state.queue,
+          exchange: state.exchange
+        )
+
         Process.send_after(self(), :connect, 1_000)
         {:noreply, state}
     end
@@ -198,7 +204,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
     do: AMQP.Basic.nack(channel, delivery_tag, requeue: true)
 
   defp connect(state) do
-    with {:ok, connection} <- AMQP.Connection.open(state.url),
+    with {:ok, connection} <- RabbitMQ.open(state.url),
          {:ok, channel} <- AMQP.Channel.open(connection),
          :ok <- AMQP.Exchange.declare(channel, state.exchange, :topic, durable: true),
          {:ok, _} <- AMQP.Queue.declare(channel, state.queue, durable: true),
