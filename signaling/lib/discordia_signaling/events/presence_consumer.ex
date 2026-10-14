@@ -2,8 +2,11 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
   @moduledoc """
   Replicates voice presence events from RabbitMQ into this signaling instance.
 
-  Each signaling instance has its own queue, so every instance receives every
-  presence event instead of RabbitMQ load-balancing it between replicas.
+  Each instance consumes from its own exclusive, server-named queue, so every
+  instance receives every presence event instead of RabbitMQ load-balancing it
+  between replicas (which happened when replicas shared `VOICE_INSTANCE_ID`).
+  The queue is deleted when the connection closes; events missed while
+  disconnected are recovered by `VoicePresenceReconciler`.
   """
 
   use GenServer
@@ -24,7 +27,7 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
     state = %{
       url: Keyword.fetch!(opts, :rabbitmq_url),
       exchange: Keyword.get(opts, :exchange, @default_exchange),
-      queue: Keyword.fetch!(opts, :queue),
+      queue: nil,
       connection: nil,
       channel: nil
     }
@@ -36,15 +39,14 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
   @impl true
   def handle_info(:connect, state) do
     case connect(state) do
-      {:ok, connection, channel} ->
+      {:ok, connection, channel, queue} ->
         Process.monitor(connection.pid)
-        Logger.info("voice_presence_consumer_connected", queue: state.queue)
-        {:noreply, %{state | connection: connection, channel: channel}}
+        Logger.info("voice_presence_consumer_connected", queue: queue)
+        {:noreply, %{state | connection: connection, channel: channel, queue: queue}}
 
       {:error, reason} ->
         Logger.warning("voice_presence_consumer_connect_failed",
           reason: inspect(reason),
-          queue: state.queue,
           exchange: state.exchange
         )
 
@@ -97,16 +99,16 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
     with {:ok, connection} <- RabbitMQ.open(state.url),
          {:ok, channel} <- AMQP.Channel.open(connection),
          :ok <- AMQP.Exchange.declare(channel, state.exchange, :topic, durable: true),
-         {:ok, _} <- AMQP.Queue.declare(channel, state.queue, durable: true),
-         :ok <- bind(channel, state),
-         {:ok, _} <- AMQP.Basic.consume(channel, state.queue) do
-      {:ok, connection, channel}
+         {:ok, %{queue: queue}} <- AMQP.Queue.declare(channel, "", exclusive: true),
+         :ok <- bind(channel, queue, state.exchange),
+         {:ok, _} <- AMQP.Basic.consume(channel, queue) do
+      {:ok, connection, channel, queue}
     end
   end
 
-  defp bind(channel, state) do
+  defp bind(channel, queue, exchange) do
     Enum.reduce_while(@routing_keys, :ok, fn key, :ok ->
-      case AMQP.Queue.bind(channel, state.queue, state.exchange, routing_key: key) do
+      case AMQP.Queue.bind(channel, queue, exchange, routing_key: key) do
         :ok -> {:cont, :ok}
         error -> {:halt, error}
       end
