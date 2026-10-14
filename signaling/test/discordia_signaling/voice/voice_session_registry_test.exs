@@ -67,6 +67,26 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
     assert VoiceSessionRegistry.participants("server-1") == []
   end
 
+  test "stamps the leave after the join so other instances apply it" do
+    assert {:ok, nil} =
+             VoiceSessionRegistry.switch("stamp-user", "voice:room-1", "Ada", "server-1")
+
+    assert_receive {:voice_presence_published,
+                    %{"event_type" => "voice.participant_joined"} = joined}
+
+    assert :ok = VoiceSessionRegistry.leave("stamp-user", "voice:room-1")
+
+    assert_receive {:voice_presence_published,
+                    %{"event_type" => "voice.participant_left"} = left}
+
+    # What another instance does with the two events it receives.
+    VoiceSessionRegistry.replicate_presence(joined)
+    assert VoiceSessionRegistry.active_room("stamp-user") == "voice:room-1"
+
+    VoiceSessionRegistry.replicate_presence(left)
+    assert VoiceSessionRegistry.active_room("stamp-user") == nil
+  end
+
   test "replicates newer presence events and ignores stale events" do
     user_id = "replicated-user"
 
