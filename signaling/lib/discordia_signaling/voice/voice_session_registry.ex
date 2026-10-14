@@ -240,6 +240,8 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     event_type =
       if action == :joined, do: "voice.participant_joined", else: "voice.participant_left"
 
+    occurred_at = if action == :joined, do: participant.occurred_at, else: now_iso()
+
     event = %{
       "event_id" => uuid(),
       "event_type" => event_type,
@@ -247,7 +249,7 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
       "room_id" => room_id(participant.room_name),
       "participant_id" => identity,
       "name" => participant.name,
-      "occurred_at" => participant.occurred_at
+      "occurred_at" => occurred_at
     }
 
     Phoenix.PubSub.broadcast(

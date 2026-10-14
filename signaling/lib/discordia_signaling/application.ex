@@ -46,8 +46,7 @@ defmodule DiscordiaSignaling.Application do
     if url == "" do
       nil
     else
-      {DiscordiaSignaling.Events.PresenceConsumer,
-       Keyword.put(config, :queue, queue_name(config, "presence"))}
+      {DiscordiaSignaling.Events.PresenceConsumer, config}
     end
   end
 
