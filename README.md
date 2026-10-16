@@ -59,6 +59,19 @@ Phoenix consume del exchange `discordia.events` (cola `VOICE_EVENTS_QUEUE`, por 
 - `servers.channel_deleted`: cierra la sala `voice:<channel_id>` con `DeleteRoom` de LiveKit, que desconecta a todos sus participantes.
 - `servers.server_deleted`: cierra la sala de cada canal de `channel_ids`.
 
+Además consume `admin.user_suspended` (`Events.SuspensionConsumer`, cola propia por réplica, sufijo `suspensions`) para sacar de su sala a un usuario suspendido a nivel plataforma:
+
+- Verifica la firma `HMAC-SHA256(ADMIN_EVENTS_HMAC_SECRET, routing_key 
+ event_id 
+ user_id 
+ version 
+ occurred_at)` en hexadecimal minúsculas, con el `occurred_at` tal cual llegó. Un evento sin firma o con firma inválida se descarta con ack y un warning, sin tocar nada.
+- Si la `version` es mayor a la última vista para ese usuario (registro en memoria, se pierde al reiniciar), saca al usuario de su sala activa con la misma operación que `servers.channel_access_revoked`. Si no está en voz o LiveKit ya no lo tiene, es éxito; si LiveKit no responde, se reencola.
+- `admin.user_reactivated` no requiere nada en voz.
+- Si `ADMIN_EVENTS_HMAC_SECRET` está vacío, este consumidor no arranca (se loguea el error) y el resto del servicio sigue.
+
+La **entrada** de un suspendido a voz no se decide acá: `POST /api/voice/token` autoriza contra `voice-access` de `servers` (`VOICE_AUTHZ_MODE=servers_api`), que responde `403` a un suspendido, y voz devuelve `403 voice_forbidden`. Con `VOICE_AUTHZ_MODE=allow_authenticated` (solo desarrollo) un suspendido sí podría entrar. Si voz estaba caída cuando se suspendió al usuario, puede seguir en la sala hasta que venza el token de LiveKit (1 hora); `make republish-suspensions` en admin re-publica las suspensiones vigentes.
+
 Una sala o participante que LiveKit ya no tiene cuenta como éxito. Si LiveKit no responde, el mensaje se devuelve a la cola (nack con requeue) y se reintenta entero; repetir la salida o el cierre es idempotente. Los payloads inválidos se descartan con ack. Los contratos están en `discordia-events_contract` (`channels/events.go`, `servers/events.go`).
 
 Cada réplica de signaling usa una cola RabbitMQ propia, derivada de
