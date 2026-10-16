@@ -2,6 +2,7 @@ defmodule DiscordiaSignaling.Application do
   @moduledoc false
 
   use Application
+  require Logger
 
   @impl true
   def start(_type, _args) do
@@ -13,6 +14,8 @@ defmodule DiscordiaSignaling.Application do
         DiscordiaSignaling.Voice.VoicePresenceReconciler,
         presence_consumer(),
         event_consumer(),
+        suspension_versions(),
+        suspension_consumer(),
         DiscordiaSignalingWeb.Endpoint
       ]
       |> Enum.reject(&is_nil/1)
@@ -48,6 +51,40 @@ defmodule DiscordiaSignaling.Application do
     else
       {DiscordiaSignaling.Events.PresenceConsumer, config}
     end
+  end
+
+  defp suspension_versions do
+    if suspension_secret() == "", do: nil, else: DiscordiaSignaling.Events.SuspensionVersions
+  end
+
+  defp suspension_consumer do
+    config = Application.get_env(:discordia_signaling, :events, [])
+    url = Keyword.get(config, :rabbitmq_url, "")
+
+    cond do
+      url == "" ->
+        nil
+
+      suspension_secret() == "" ->
+        Logger.error(
+          "voice_suspension_consumer_disabled: ADMIN_EVENTS_HMAC_SECRET is empty, " <>
+            "admin.user_suspended events will not be consumed"
+        )
+
+        nil
+
+      true ->
+        {DiscordiaSignaling.Events.SuspensionConsumer,
+         config
+         |> Keyword.put(:queue, queue_name(config, "suspensions"))
+         |> Keyword.put(:hmac_secret, suspension_secret())}
+    end
+  end
+
+  defp suspension_secret do
+    :discordia_signaling
+    |> Application.get_env(:events, [])
+    |> Keyword.get(:admin_hmac_secret, "")
   end
 
   defp queue_name(config, suffix) do

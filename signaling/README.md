@@ -27,6 +27,7 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
   queues. Defaults to `FLY_ALLOC_ID`, `HOSTNAME` or `default`; set it explicitly
   when running multiple local replicas. Do not reuse the same value across
   simultaneously running replicas.
+- `ADMIN_EVENTS_HMAC_SECRET`: secret shared with admin to verify the signature of `admin.user_suspended`. If empty, the suspension consumer does not start (an error is logged) and the rest of the service keeps running.
 - `VOICE_AUTHZ_MODE`: `servers_api` for membership and `VIEW_CHANNELS` checks; `allow_authenticated` is local-only.
 
 ## CI/CD con Fly.io
@@ -38,7 +39,8 @@ El workflow de `voice-sfu` despliega este servicio desde `signaling/`:
 
 Antes del primer despliegue, crea las aplicaciones `discordia-signaling-staging` y
 `discordia-signaling-production`, y configura en cada una los secrets `SECRET_KEY_BASE`,
-`LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_URL`, `SERVERS_URL` y `RABBITMQ_URL`.
+`LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_URL`, `SERVERS_URL`, `RABBITMQ_URL` y
+`ADMIN_EVENTS_HMAC_SECRET` (mismo valor que admin; se carga con `fly secrets`).
 Los manifests solo contienen configuración no sensible.
 
 `POST /api/voice/token` accepts only `{ "channel_id": "..." }`. Phoenix derives
@@ -78,6 +80,19 @@ server context.
 channel and server deletions close the affected rooms with `DeleteRoom`.
 LiveKit errors other than `not_found` requeue the message.
 
+`DiscordiaSignaling.Events.SuspensionConsumer` binds `admin.user_suspended` on
+its own per-replica queue. It verifies the HMAC signature
+(`DiscordiaSignaling.Events.AdminSignature`), ignores versions not newer than
+the last one seen for the user (`SuspensionVersions`, in memory only) and
+removes the user from their active room through
+`VoiceSessionRegistry.leave/2`, the same call used for
+`servers.channel_access_revoked`. A user who is not in voice, or whom LiveKit
+no longer has, is a success; LiveKit errors requeue the message; invalid
+signatures and malformed payloads are acked and discarded. Blocking *entry* is
+not done here: `POST /api/voice/token` relies on `voice-access` in `servers`,
+which answers `403` for a suspended user (with `VOICE_AUTHZ_MODE=allow_authenticated`,
+local only, a suspended user could still get a token).
+
 ## Tests y cobertura
 
 ```bash
@@ -99,6 +114,10 @@ Para ejecutarla localmente:
 $env:RABBITMQ_URL = "amqp://guest:guest@localhost:5672"
 mix test test/integration/voice_presence_rabbitmq_test.exs
 ```
+
+La de suspensiones está en `test/integration/voice_suspension_rabbitmq_test.exs` y se
+ejecuta igual: publica un `admin.user_suspended` falsificado (no expulsa) y uno firmado
+(expulsa).
 
 Las pruebas marcadas como `integration` se excluyen de `mix test` por defecto.
 Para incluirlas explícitamente se usa:
