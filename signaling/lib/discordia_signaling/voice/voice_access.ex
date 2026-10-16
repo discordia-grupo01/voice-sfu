@@ -82,7 +82,9 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
     url = String.to_charlist(base_url <> "/v1/channels/" <> channel_id <> "/voice-access")
     headers = [{~c"authorization", String.to_charlist(authorization_header)}]
 
-    case :httpc.request(:get, {url, headers}, [], body_format: :binary) do
+    case :httpc.request(:get, {url, headers}, [connect_timeout: 2_000, timeout: 4_000],
+           body_format: :binary
+         ) do
       {:ok, {{_, 200, _}, _headers, body}} ->
         case Jason.decode(body) do
           {:ok, %{"allowed" => true} = response} ->
