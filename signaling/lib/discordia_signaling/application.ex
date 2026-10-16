@@ -11,6 +11,7 @@ defmodule DiscordiaSignaling.Application do
         {Phoenix.PubSub, name: DiscordiaSignaling.PubSub},
         DiscordiaSignaling.Voice.VoicePresencePublisher,
         DiscordiaSignaling.Voice.VoiceSessionRegistry,
+        DiscordiaSignaling.Voice.MembershipCache,
         DiscordiaSignaling.Voice.VoicePresenceReconciler,
         presence_consumer(),
         event_consumer(),
