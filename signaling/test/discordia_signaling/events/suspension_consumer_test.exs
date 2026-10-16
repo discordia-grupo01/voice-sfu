@@ -174,4 +174,104 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
       assert :ack = process(signed_payload("", 1))
     end)
   end
+
+  describe "connection lifecycle" do
+    # The callbacks are called directly with a state map, without a broker.
+    defp consumer_state(overrides \\ %{}) do
+      Map.merge(
+        %{
+          url: "amqp://guest:guest@127.0.0.1:1",
+          exchange: "discordia.events",
+          queue: "voice.test.suspensions",
+          secret: @secret,
+          connection: nil,
+          channel: nil
+        },
+        overrides
+      )
+    end
+
+    test "init keeps the options and schedules the first connection attempt" do
+      assert {:ok, state} =
+               SuspensionConsumer.init(
+                 rabbitmq_url: "amqp://example",
+                 hmac_secret: @secret,
+                 queue: "voice.custom.suspensions"
+               )
+
+      assert state.url == "amqp://example"
+      assert state.secret == @secret
+      assert state.queue == "voice.custom.suspensions"
+      assert state.exchange == "discordia.events"
+      assert state.connection == nil
+      assert state.channel == nil
+      assert_receive :connect
+    end
+
+    test "init falls back to the default queue and an empty secret" do
+      assert {:ok, state} = SuspensionConsumer.init(rabbitmq_url: "amqp://example")
+
+      assert state.queue == "voice.signaling"
+      assert state.secret == ""
+      assert_receive :connect
+    end
+
+    test "a failed connection is logged and retried" do
+      state = consumer_state()
+
+      log =
+        capture_log([level: :warning], fn ->
+          assert {:noreply, ^state} = SuspensionConsumer.handle_info(:connect, state)
+        end)
+
+      assert log =~ "voice_suspension_consumer_connect_failed"
+      assert_receive :connect, 2_000
+    end
+
+    test "a lost connection is dropped and a reconnection is scheduled" do
+      state = consumer_state(%{connection: %{pid: self()}, channel: :channel})
+
+      log =
+        capture_log([level: :warning], fn ->
+          assert {:noreply, next} =
+                   SuspensionConsumer.handle_info(
+                     {:DOWN, make_ref(), :process, self(), :closed},
+                     state
+                   )
+
+          assert next.connection == nil
+          assert next.channel == nil
+        end)
+
+      assert log =~ "voice_suspension_consumer_connection_down"
+      assert_receive :connect
+    end
+
+    test "ignores the AMQP consume and cancel acknowledgements" do
+      state = consumer_state()
+
+      assert {:noreply, ^state} = SuspensionConsumer.handle_info({:basic_consume_ok, %{}}, state)
+      assert {:noreply, ^state} = SuspensionConsumer.handle_info({:basic_cancel_ok, %{}}, state)
+    end
+
+    test "stops when the broker cancels the consumer" do
+      state = consumer_state()
+
+      assert {:stop, :normal, ^state} = SuspensionConsumer.handle_info({:basic_cancel, %{}}, state)
+    end
+
+    test "terminates cleanly without an AMQP connection" do
+      assert :ok = SuspensionConsumer.terminate(:normal, consumer_state())
+    end
+
+    test "terminating with a connection that is already gone does not raise" do
+      pid = spawn(fn -> :ok end)
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _}
+
+      state = consumer_state(%{connection: %AMQP.Connection{pid: pid}})
+
+      assert :ok = SuspensionConsumer.terminate(:shutdown, state)
+    end
+  end
 end
