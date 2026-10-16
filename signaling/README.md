@@ -51,7 +51,13 @@ includes in the LiveKit token `name` claim.
 
 `GET /api/voice/participants?server_id=...` returns the current participant
 snapshot grouped by visible voice channel. In `servers_api` mode the request
-is authorized through `servers` before the snapshot is returned. Presence
+is authorized through `GET /v1/servers/{serverId}/membership` in `servers` (a
+yes/no check, 403 for a non-member) before the snapshot is returned. The call
+has a 2 s connect and 4 s total timeout; if `servers` fails or does not answer,
+the endpoint answers `503 voice_unavailable`, not `403`. A confirmed membership
+is kept in memory for 30 s per user and server, so polling clients do not hit
+`servers` on every request; refusals and failures are never kept. This needs a
+`servers` version that has the membership endpoint: deploy it first. Presence
 changes are also pushed to joined Phoenix voice topics and published as
 `voice.participant_joined` / `voice.participant_left`. The public WebSocket
 endpoint is `/voice/socket` (the legacy local `/socket` endpoint remains).

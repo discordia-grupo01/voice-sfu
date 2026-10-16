@@ -3,7 +3,7 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
 
   import Plug.Test
 
-  alias DiscordiaSignaling.Voice.VoiceSessionRegistry
+  alias DiscordiaSignaling.Voice.{MembershipCache, VoiceSessionRegistry}
   alias DiscordiaSignalingWeb.VoicePresenceController
 
   setup do
@@ -81,7 +81,13 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
   describe "with the servers API as the authorizer" do
     setup do
       previous = Application.get_env(:discordia_signaling, :servers)
-      on_exit(fn -> Application.put_env(:discordia_signaling, :servers, previous) end)
+      MembershipCache.clear()
+
+      on_exit(fn ->
+        Application.put_env(:discordia_signaling, :servers, previous)
+        MembershipCache.clear()
+      end)
+
       :ok
     end
 
@@ -112,9 +118,10 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
       )
     end
 
-    defp participants_request(authorization \\ "Bearer token") do
+    defp participants_request(authorization \\ "Bearer token", user_id \\ nil) do
       conn(:get, "/api/voice/participants")
       |> Plug.Conn.put_req_header("authorization", authorization)
+      |> Plug.Conn.assign(:current_user_id, user_id)
       |> VoicePresenceController.index(%{"server_id" => "server-1"})
     end
 
@@ -152,6 +159,68 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
 
       assert conn.status == 503
       assert Jason.decode!(conn.resp_body) == %{"error" => "voice_unavailable"}
+    end
+
+    test "asks the lean membership endpoint, not the whole server" do
+      {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+      {:ok, port} = :inet.port(listen)
+      test_pid = self()
+
+      spawn_link(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen)
+        {:ok, request} = :gen_tcp.recv(socket, 0, 2_000)
+        send(test_pid, {:request_line, request |> String.split("\r\n") |> hd()})
+
+        :gen_tcp.send(
+          socket,
+          "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}"
+        )
+
+        :gen_tcp.close(socket)
+      end)
+
+      use_servers_api(port)
+      assert participants_request().status == 200
+      assert_receive {:request_line, "GET /v1/servers/server-1/membership HTTP/1.1"}
+    end
+
+    test "a confirmed member is remembered, so the next poll does not call servers" do
+      use_servers_api(serve_once("200 OK"))
+
+      assert participants_request("Bearer token", "user-cache").status == 200
+
+      # Nothing answers any more: only the cache can produce this 200 (a real
+      # call would hang until its 4 s timeout and end in 503).
+      assert participants_request("Bearer token", "user-cache").status == 200
+    end
+
+    test "the memory is per user" do
+      use_servers_api(serve_once("200 OK"))
+      assert participants_request("Bearer token", "user-a").status == 200
+
+      use_servers_api(serve_once("403 Forbidden"))
+      assert participants_request("Bearer token", "user-b").status == 403
+    end
+
+    test "a refusal is not remembered" do
+      use_servers_api(serve_once("403 Forbidden"))
+      assert participants_request("Bearer token", "user-late").status == 403
+
+      use_servers_api(serve_once("200 OK"))
+      assert participants_request("Bearer token", "user-late").status == 200
+    end
+
+    test "the cache can be turned off" do
+      Application.put_env(:discordia_signaling, :servers,
+        url: "http://127.0.0.1:#{serve_once("200 OK")}",
+        authz_mode: "servers_api",
+        membership_cache_ttl_ms: 0
+      )
+
+      assert participants_request("Bearer token", "user-nocache").status == 200
+
+      use_servers_api(serve_once("403 Forbidden"))
+      assert participants_request("Bearer token", "user-nocache").status == 403
     end
 
     test "forbids a request without credentials" do

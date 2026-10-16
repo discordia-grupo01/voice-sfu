@@ -1,14 +1,14 @@
 defmodule DiscordiaSignalingWeb.VoicePresenceController do
   use Phoenix.Controller, formats: [:json]
 
-  alias DiscordiaSignaling.Voice.VoiceSessionRegistry
+  alias DiscordiaSignaling.Voice.{MembershipCache, VoiceSessionRegistry}
 
   @servers_http_options [connect_timeout: 2_000, timeout: 4_000]
 
   def index(conn, %{"server_id" => server_id}) when is_binary(server_id) and server_id != "" do
     authorization_header = List.first(Plug.Conn.get_req_header(conn, "authorization"))
 
-    case authorize_server(server_id, authorization_header) do
+    case authorize_server(conn, server_id, authorization_header) do
       :ok ->
         participants =
           server_id
@@ -43,20 +43,28 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
     end)
   end
 
-  defp authorize_server(server_id, authorization_header) do
-    mode = Application.get_env(:discordia_signaling, :servers, [])[:authz_mode]
+  defp authorize_server(conn, server_id, authorization_header) do
+    config = Application.get_env(:discordia_signaling, :servers, [])
 
-    if mode != "servers_api" do
+    if config[:authz_mode] != "servers_api" do
       :ok
     else
-      authorize_server_with_api(server_id, authorization_header)
+      user_id = conn.assigns[:current_user_id]
+      ttl_ms = Keyword.get(config, :membership_cache_ttl_ms, MembershipCache.default_ttl_ms())
+      key = user_id && {user_id, server_id}
+
+      MembershipCache.fetch(key, ttl_ms, fn ->
+        authorize_server_with_api(server_id, authorization_header)
+      end)
     end
   end
 
   defp authorize_server_with_api(server_id, authorization_header)
        when is_binary(authorization_header) and authorization_header != "" do
     base_url = Application.get_env(:discordia_signaling, :servers, [])[:url]
-    url = String.to_charlist(base_url <> "/v1/servers/" <> server_id)
+    # A lean yes/no check: GET /v1/servers/:id builds the whole server and answers
+    # 200 even to a non-member, so it can neither be polled nor tell who may look.
+    url = String.to_charlist(base_url <> "/v1/servers/" <> server_id <> "/membership")
     headers = [{~c"authorization", String.to_charlist(authorization_header)}]
 
     # Without a timeout, a slow servers API leaves this request hanging until the
