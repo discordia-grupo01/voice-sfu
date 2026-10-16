@@ -13,6 +13,7 @@ config :discordia_signaling, :servers,
 config :discordia_signaling, :events,
   rabbitmq_url: System.get_env("RABBITMQ_URL", ""),
   exchange: System.get_env("EVENTS_EXCHANGE", "discordia.events"),
+  admin_hmac_secret: System.get_env("ADMIN_EVENTS_HMAC_SECRET", ""),
   queue: System.get_env("VOICE_EVENTS_QUEUE", "voice.signaling"),
   instance_id:
     System.get_env("VOICE_INSTANCE_ID") ||
