@@ -84,6 +84,42 @@ defmodule DiscordiaSignalingWeb.VoiceChannelTest do
     assert_push("voice.participant_joined", ^event)
   end
 
+  test "joins a server presence topic" do
+    assert {:ok, socket} =
+             VoiceChannel.join("voice_server:server-1", %{}, %Phoenix.Socket{})
+
+    assert socket.assigns.server_id == "server-1"
+    assert socket.assigns.presence_only
+  end
+
+  test "pushes presence events to a server presence subscriber" do
+    {:ok, _, socket} =
+      subscribe_and_join(
+        socket(Endpoint, nil, %{}),
+        VoiceChannel,
+        "voice_server:server-1",
+        %{}
+      )
+
+    event = %{
+      "event_type" => "voice.participant_joined",
+      "event_id" => "event-1",
+      "server_id" => "server-1",
+      "room_id" => "room-1",
+      "participant_id" => "peer-1",
+      "name" => "Ada"
+    }
+
+    Phoenix.PubSub.broadcast(
+      DiscordiaSignaling.PubSub,
+      "voice_server:server-1",
+      {:voice_presence, event}
+    )
+
+    assert_push("voice.participant_joined", ^event)
+    refute socket.assigns[:room_id]
+  end
+
   test "replicates the complete two-client presence flow through socket pushes" do
     {:ok, _, _first_socket} =
       subscribe_and_join(
