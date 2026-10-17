@@ -49,13 +49,15 @@ the LiveKit room name as `voice:<channel_id>` and forwards the validated JWT to
 response supplies the user's replicated public profile name, which Phoenix
 includes in the LiveKit token `name` claim.
 
-`GET /api/voice/participants?server_id=...` returns the current participant
-snapshot grouped by visible voice channel. In `servers_api` mode the request
+`GET /api/voice/participants?server_id=...` returns the initial participant
+snapshot grouped by visible voice channel. After joining
+`voice_server:<server_id>` through `/voice/socket`, presence changes are pushed
+as `voice.participant_joined` and `voice.participant_left`. In `servers_api` mode the request
 is authorized through `GET /v1/servers/{serverId}/membership` in `servers` (a
 yes/no check, 403 for a non-member) before the snapshot is returned. The call
 has a 2 s connect and 4 s total timeout; if `servers` fails or does not answer,
 the endpoint answers `503 voice_unavailable`, not `403`. A confirmed membership
-is kept in memory for 30 s per user and server, so polling clients do not hit
+is kept in memory for 30 s per user and server, so snapshot clients do not hit
 `servers` on every request; refusals and failures are never kept. This needs a
 `servers` version that has the membership endpoint: deploy it first. Presence
 changes are also pushed to joined Phoenix voice topics and published as

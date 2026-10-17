@@ -240,7 +240,10 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     event_type =
       if action == :joined, do: "voice.participant_joined", else: "voice.participant_left"
 
-    occurred_at = if action == :joined, do: participant.occurred_at, else: now_iso()
+    occurred_at =
+      if action == :joined,
+        do: participant.occurred_at,
+        else: leave_timestamp(participant.occurred_at)
 
     event = %{
       "event_id" => uuid(),
@@ -306,6 +309,15 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   end
 
   defp apply_presence_event(_event), do: :ok
+
+  defp leave_timestamp(joined_at) do
+    now = now_iso()
+
+    case DateTime.compare(parse_datetime(now), parse_datetime(joined_at)) do
+      :gt -> now
+      _ -> joined_at |> parse_datetime() |> DateTime.add(1, :microsecond) |> DateTime.to_iso8601()
+    end
+  end
 
   defp newer_event?(nil, _occurred_at), do: true
 
