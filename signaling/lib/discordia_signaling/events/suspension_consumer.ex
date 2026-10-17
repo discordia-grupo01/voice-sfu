@@ -7,14 +7,15 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
   the user out of their room with the same operation used by
   `servers.channel_access_revoked`. Entry to voice is blocked by `servers`
   when the LiveKit token is requested; this consumer only handles users who
-  were already connected. `admin.user_reactivated` needs no action here.
+  were already connected. It also drops the user's cached server memberships
+  (see `MembershipCache`). `admin.user_reactivated` needs no action here.
   """
 
   use GenServer
   require Logger
 
   alias DiscordiaSignaling.Events.{AdminSignature, RabbitMQ, SuspensionVersions}
-  alias DiscordiaSignaling.Voice.VoiceSessionRegistry
+  alias DiscordiaSignaling.Voice.{MembershipCache, VoiceSessionRegistry}
 
   @suspended_key "admin.user_suspended"
   @default_exchange "discordia.events"
@@ -111,6 +112,10 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
 
   defp suspend({:ok, user_id, version}) do
     if SuspensionVersions.newer?(user_id, version) do
+      # Before anything that can fail and be retried: a membership confirmed
+      # before the suspension must not keep answering for up to its TTL.
+      MembershipCache.forget_user(user_id)
+
       case remove_from_room(user_id) do
         :ok ->
           SuspensionVersions.record(user_id, version)

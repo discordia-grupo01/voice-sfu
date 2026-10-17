@@ -51,6 +51,19 @@ defmodule DiscordiaSignaling.Voice.MembershipCache do
     end
   end
 
+  @doc """
+  Forgets every membership remembered for `user_id`, in any server. Used when
+  the user is suspended, so the next request asks the servers API again instead
+  of reusing a confirmation that may be up to the TTL old.
+  """
+  @spec forget_user(String.t()) :: :ok
+  def forget_user(user_id) do
+    :ets.match_delete(@table, {{user_id, :_}, :_})
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
   @doc "Forgets every entry."
   @spec clear() :: :ok
   def clear do
