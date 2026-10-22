@@ -330,11 +330,21 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   defp apply_presence_event(_event), do: :ignored
 
   defp leave_timestamp(joined_at) do
-    now = now_iso()
+    joined = parse_datetime(joined_at)
+    minimum = DateTime.add(joined, 1, :microsecond)
+    now = DateTime.utc_now()
+    timestamp = if DateTime.compare(now, minimum) == :lt, do: minimum, else: now
 
-    case DateTime.compare(parse_datetime(now), parse_datetime(joined_at)) do
-      :gt -> now
-      _ -> joined_at |> parse_datetime() |> DateTime.add(1, :microsecond) |> DateTime.to_iso8601()
+    timestamp
+    |> DateTime.to_iso8601()
+    |> ensure_after(joined)
+  end
+
+  defp ensure_after(timestamp, joined) do
+    if DateTime.compare(parse_datetime(timestamp), joined) == :gt do
+      timestamp
+    else
+      joined |> DateTime.add(1, :microsecond) |> DateTime.to_iso8601()
     end
   end
 
