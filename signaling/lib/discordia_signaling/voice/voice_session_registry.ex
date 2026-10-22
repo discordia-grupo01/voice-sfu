@@ -152,7 +152,10 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
 
   @impl true
   def handle_call({:replicate_presence, event}, _from, state) do
-    apply_presence_event(event)
+    if apply_presence_event(event) == :applied do
+      broadcast_presence_event(event)
+    end
+
     {:reply, :ok, state}
   end
 
@@ -255,20 +258,31 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
       "occurred_at" => occurred_at
     }
 
-    Phoenix.PubSub.broadcast(
-      @pubsub,
-      "voice:#{room_id(participant.room_name)}",
-      {:voice_presence, event}
-    )
-
-    Phoenix.PubSub.broadcast(
-      @pubsub,
-      "voice_server:#{participant.server_id}",
-      {:voice_presence, event}
-    )
-
+    broadcast_presence_event(event)
     publisher().publish(event)
   end
+
+  defp broadcast_presence_event(
+         %{
+           "room_id" => room_id,
+           "server_id" => server_id
+         } = event
+       )
+       when is_binary(room_id) and is_binary(server_id) do
+    Phoenix.PubSub.broadcast(
+      @pubsub,
+      "voice:#{room_id}",
+      {:voice_presence, event}
+    )
+
+    Phoenix.PubSub.broadcast(
+      @pubsub,
+      "voice_server:#{server_id}",
+      {:voice_presence, event}
+    )
+  end
+
+  defp broadcast_presence_event(_event), do: :ok
 
   defp apply_presence_event(%{
          "event_type" => event_type,
@@ -283,8 +297,9 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
               is_binary(occurred_at) do
     incoming_room = "voice:" <> room_id
     current = lookup(identity)
+    applied = newer_event?(current, occurred_at)
 
-    if newer_event?(current, occurred_at) do
+    if applied do
       case event_type do
         "voice.participant_joined" ->
           :ets.insert(
@@ -305,10 +320,10 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
       end
     end
 
-    :ok
+    if applied, do: :applied, else: :ignored
   end
 
-  defp apply_presence_event(_event), do: :ok
+  defp apply_presence_event(_event), do: :ignored
 
   defp leave_timestamp(joined_at) do
     now = now_iso()

@@ -76,8 +76,7 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
 
     assert :ok = VoiceSessionRegistry.leave("stamp-user", "voice:room-1")
 
-    assert_receive {:voice_presence_published,
-                    %{"event_type" => "voice.participant_left"} = left}
+    assert_receive {:voice_presence_published, %{"event_type" => "voice.participant_left"} = left}
 
     # What another instance does with the two events it receives.
     VoiceSessionRegistry.replicate_presence(joined)
@@ -114,6 +113,26 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
     })
 
     assert VoiceSessionRegistry.active_room(user_id) == "voice:room-1"
+  end
+
+  test "broadcasts replicated presence to local socket subscribers" do
+    Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_server:server-1")
+
+    event = %{
+      "event_type" => "voice.participant_joined",
+      "event_id" => "remote-join-pubsub",
+      "occurred_at" => "2026-10-07T12:00:00Z",
+      "server_id" => "server-1",
+      "room_id" => "room-1",
+      "participant_id" => "replicated-pubsub-user",
+      "name" => "Ada"
+    }
+
+    assert :ok = VoiceSessionRegistry.replicate_presence(event)
+    assert_receive {:voice_presence, ^event}
+
+    assert :ok = VoiceSessionRegistry.replicate_presence(event)
+    refute_receive {:voice_presence, ^event}
   end
 
   test "replicated leave removes the matching current room" do
