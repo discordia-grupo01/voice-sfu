@@ -49,6 +49,14 @@ the LiveKit room name as `voice:<channel_id>` and forwards the validated JWT to
 response supplies the user's replicated public profile name, which Phoenix
 includes in the LiveKit token `name` claim.
 
+The browser presence socket uses `POST /api/voice/socket-ticket` first. This
+authenticated endpoint issues a 30-second ticket signed with `JWT_SECRET`;
+Phoenix validates that ticket in the WebSocket handshake. The gateway JWT
+plugin is intentionally applied to the HTTP routes only, not to
+`GET /voice/socket`, because browsers cannot add the `Authorization` header to
+the Phoenix WebSocket upgrade. The ticket keeps the access JWT and refresh
+token inside the web BFF.
+
 `GET /api/voice/participants?server_id=...` returns the initial participant
 snapshot grouped by visible voice channel. After joining
 `voice_server:<server_id>` through `/voice/socket`, presence changes are pushed
