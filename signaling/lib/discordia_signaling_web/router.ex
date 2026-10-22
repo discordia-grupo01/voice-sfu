@@ -35,5 +35,6 @@ defmodule DiscordiaSignalingWeb.Router do
     post("/voice/token", VoiceTokenController, :create)
     delete("/voice/session", VoiceSessionController, :delete)
     get("/voice/participants", VoicePresenceController, :index)
+    post("/voice/socket-ticket", VoiceSocketTicketController, :create)
   end
 end

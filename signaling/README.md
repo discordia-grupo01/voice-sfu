@@ -27,7 +27,12 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
   queues. Defaults to `FLY_ALLOC_ID`, `HOSTNAME` or `default`; set it explicitly
   when running multiple local replicas. Do not reuse the same value across
   simultaneously running replicas.
+- `ADMIN_EVENTS_HMAC_SECRET`: secret shared with admin to verify the signature of `admin.user_suspended`. If empty, the suspension consumer does not start (an error is logged) and the rest of the service keeps running.
 - `VOICE_AUTHZ_MODE`: `servers_api` for membership and `VIEW_CHANNELS` checks; `allow_authenticated` is local-only.
+- `PHOENIX_CHECK_ORIGINS`: comma-separated browser origins allowed to open
+  Phoenix sockets. Local defaults are `http://localhost:3000` and
+  `http://127.0.0.1:3000`; production must include the exact HTTPS origin of
+  the deployed web client.
 
 ## CI/CD con Fly.io
 
@@ -38,8 +43,13 @@ El workflow de `voice-sfu` despliega este servicio desde `signaling/`:
 
 Antes del primer despliegue, crea las aplicaciones `discordia-signaling-staging` y
 `discordia-signaling-production`, y configura en cada una los secrets `SECRET_KEY_BASE`,
-`LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_URL`, `SERVERS_URL` y `RABBITMQ_URL`.
+`LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_URL`, `SERVERS_URL`, `RABBITMQ_URL` y
+`ADMIN_EVENTS_HMAC_SECRET` (mismo valor que admin; se carga con `fly secrets`).
 Los manifests solo contienen configuración no sensible.
+
+The production manifest allows `https://discordia-g1.vercel.app` to open the
+voice socket. If the Vercel deployment uses another custom domain, update
+`PHOENIX_CHECK_ORIGINS` before deploying. Do not use `check_origin: false`.
 
 `POST /api/voice/token` accepts only `{ "channel_id": "..." }`. Phoenix derives
 the LiveKit room name as `voice:<channel_id>` and forwards the validated JWT to
@@ -47,9 +57,25 @@ the LiveKit room name as `voice:<channel_id>` and forwards the validated JWT to
 response supplies the user's replicated public profile name, which Phoenix
 includes in the LiveKit token `name` claim.
 
-`GET /api/voice/participants?server_id=...` returns the current participant
-snapshot grouped by visible voice channel. In `servers_api` mode the request
-is authorized through `servers` before the snapshot is returned. Presence
+The browser presence socket uses `POST /api/voice/socket-ticket` first. This
+authenticated endpoint issues a 30-second ticket signed with `JWT_SECRET`;
+Phoenix validates that ticket in the WebSocket handshake. The gateway JWT
+plugin is intentionally applied to the HTTP routes only, not to
+`GET /voice/socket`, because browsers cannot add the `Authorization` header to
+the Phoenix WebSocket upgrade. The ticket keeps the access JWT and refresh
+token inside the web BFF.
+
+`GET /api/voice/participants?server_id=...` returns the initial participant
+snapshot grouped by visible voice channel. After joining
+`voice_server:<server_id>` through `/voice/socket`, presence changes are pushed
+as `voice.participant_joined` and `voice.participant_left`. In `servers_api` mode the request
+is authorized through `GET /v1/servers/{serverId}/membership` in `servers` (a
+yes/no check, 403 for a non-member) before the snapshot is returned. The call
+has a 2 s connect and 4 s total timeout; if `servers` fails or does not answer,
+the endpoint answers `503 voice_unavailable`, not `403`. A confirmed membership
+is kept in memory for 30 s per user and server, so snapshot clients do not hit
+`servers` on every request; refusals and failures are never kept. This needs a
+`servers` version that has the membership endpoint: deploy it first. Presence
 changes are also pushed to joined Phoenix voice topics and published as
 `voice.participant_joined` / `voice.participant_left`. The public WebSocket
 endpoint is `/voice/socket` (the legacy local `/socket` endpoint remains).
@@ -78,6 +104,19 @@ server context.
 channel and server deletions close the affected rooms with `DeleteRoom`.
 LiveKit errors other than `not_found` requeue the message.
 
+`DiscordiaSignaling.Events.SuspensionConsumer` binds `admin.user_suspended` on
+its own per-replica queue. It verifies the HMAC signature
+(`DiscordiaSignaling.Events.AdminSignature`), ignores versions not newer than
+the last one seen for the user (`SuspensionVersions`, in memory only) and
+removes the user from their active room through
+`VoiceSessionRegistry.leave/2`, the same call used for
+`servers.channel_access_revoked`. A user who is not in voice, or whom LiveKit
+no longer has, is a success; LiveKit errors requeue the message; invalid
+signatures and malformed payloads are acked and discarded. Blocking *entry* is
+not done here: `POST /api/voice/token` relies on `voice-access` in `servers`,
+which answers `403` for a suspended user (with `VOICE_AUTHZ_MODE=allow_authenticated`,
+local only, a suspended user could still get a token).
+
 ## Tests y cobertura
 
 ```bash
@@ -99,6 +138,10 @@ Para ejecutarla localmente:
 $env:RABBITMQ_URL = "amqp://guest:guest@localhost:5672"
 mix test test/integration/voice_presence_rabbitmq_test.exs
 ```
+
+La de suspensiones está en `test/integration/voice_suspension_rabbitmq_test.exs` y se
+ejecuta igual: publica un `admin.user_suspended` falsificado (no expulsa) y uno firmado
+(expulsa).
 
 Las pruebas marcadas como `integration` se excluyen de `mix test` por defecto.
 Para incluirlas explícitamente se usa:

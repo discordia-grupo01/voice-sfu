@@ -4,6 +4,7 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   use GenServer
 
   @pubsub DiscordiaSignaling.PubSub
+  @table :voice_sessions
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, %{}, Keyword.put_new(opts, :name, __MODULE__))
@@ -19,188 +20,197 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
           {:ok, String.t() | nil} | {:error, atom()}
   def switch(identity, room_name, display_name, server_id)
       when is_binary(identity) and is_binary(room_name) and is_binary(display_name) do
-    GenServer.call(__MODULE__, {:switch, identity, room_name, display_name, server_id})
+    previous_room = identity |> lookup() |> room_name()
+
+    case disconnect_previous(previous_room, room_name, identity) do
+      :ok ->
+        GenServer.call(__MODULE__, {:switch, identity, room_name, display_name, server_id})
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @spec leave(String.t(), String.t()) :: :ok | {:error, atom()}
   def leave(identity, room_name) when is_binary(identity) and is_binary(room_name) do
-    GenServer.call(__MODULE__, {:leave, identity, room_name})
+    case lookup(identity) do
+      %{room_name: ^room_name} ->
+        case room_service().remove_participant(room_name, identity) do
+          result when result in [:ok, {:error, :not_found}] ->
+            GenServer.call(__MODULE__, {:leave, identity, room_name})
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      _ ->
+        :ok
+    end
   end
 
   @spec close_room(String.t()) :: :ok | {:error, atom()}
   def close_room(room_name) when is_binary(room_name) do
-    GenServer.call(__MODULE__, {:close_room, room_name})
+    case room_service().delete_room(room_name) do
+      result when result in [:ok, {:error, :not_found}] ->
+        GenServer.call(__MODULE__, {:close_room, room_name})
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @spec active_room(String.t()) :: String.t() | nil
   def active_room(identity) when is_binary(identity) do
-    GenServer.call(__MODULE__, {:active_room, identity})
+    identity |> lookup() |> room_name()
   end
 
   @spec participants(String.t() | nil) :: [map()]
   def participants(server_id \\ nil) do
-    GenServer.call(__MODULE__, {:participants, server_id})
+    @table
+    |> :ets.tab2list()
+    |> Enum.flat_map(fn {identity, participant} ->
+      if server_id == nil or participant.server_id == server_id do
+        [
+          %{
+            "participant_id" => identity,
+            "name" => participant.name,
+            "room_id" => room_id(participant.room_name)
+          }
+        ]
+      else
+        []
+      end
+    end)
   end
 
   @spec replicate_presence(map()) :: :ok
   def replicate_presence(event) when is_map(event) do
-    GenServer.cast(__MODULE__, {:replicate_presence, event})
+    GenServer.call(__MODULE__, {:replicate_presence, event})
   end
 
   @spec reconcile_participant(map()) :: :ok
   def reconcile_participant(participant) when is_map(participant) do
-    GenServer.cast(__MODULE__, {:reconcile_participant, participant})
+    GenServer.call(__MODULE__, {:reconcile_participant, participant})
   end
 
   @spec reconcile_snapshot([map()]) :: :ok
   def reconcile_snapshot(participants) when is_list(participants) do
-    GenServer.cast(__MODULE__, {:reconcile_snapshot, participants})
+    GenServer.call(__MODULE__, {:reconcile_snapshot, participants})
   end
 
   @impl true
-  def init(state), do: {:ok, state}
+  def init(state) do
+    :ets.new(@table, [:named_table, :set, :protected, read_concurrency: true])
+    {:ok, state}
+  end
 
   @impl true
   def handle_call({:switch, identity, room_name, display_name, server_id}, _from, state) do
-    previous = Map.get(state, identity)
+    previous = lookup(identity)
     previous_room = room_name(previous)
 
-    case disconnect_previous(previous_room, room_name, identity) do
-      :ok ->
-        participant = %{
-          room_name: room_name,
-          server_id: server_id,
-          name: display_name,
-          occurred_at: DateTime.utc_now() |> DateTime.to_iso8601()
-        }
-
-        if previous_room == room_name do
-          {:reply, {:ok, previous_room}, Map.put(state, identity, participant)}
-        else
-          state = remove_participant(state, identity, previous)
-          if previous, do: broadcast_presence(:left, identity, previous)
-          broadcast_replacement(previous, room_name, identity)
-          broadcast_presence(:joined, identity, participant)
-          {:reply, {:ok, previous_room}, Map.put(state, identity, participant)}
-        end
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
-  end
-
-  def handle_call({:leave, identity, room_name}, _from, state) do
-    case Map.get(state, identity) do
-      %{room_name: ^room_name} = participant ->
-        case room_service().remove_participant(room_name, identity) do
-          result when result in [:ok, {:error, :not_found}] ->
-            broadcast_presence(:left, identity, participant)
-            {:reply, :ok, Map.delete(state, identity)}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
-
-      _ ->
-        {:reply, :ok, state}
-    end
-  end
-
-  def handle_call({:close_room, room_name}, _from, state) do
-    case room_service().delete_room(room_name) do
-      result when result in [:ok, {:error, :not_found}] ->
-        {removed, remaining} =
-          state
-          |> Enum.split_with(fn {_identity, participant} ->
-            room_name(participant) == room_name
-          end)
-          |> then(fn {removed, remaining} -> {removed, Map.new(remaining)} end)
-
-        Enum.each(removed, fn {identity, participant} ->
-          broadcast_presence(:left, identity, participant)
-        end)
-
-        {:reply, :ok, remaining}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
-  end
-
-  def handle_call({:active_room, identity}, _from, state) do
-    {:reply, room_name(Map.get(state, identity)), state}
-  end
-
-  def handle_call({:participants, server_id}, _from, state) do
-    participants =
-      state
-      |> Enum.flat_map(fn {identity, participant} ->
-        if server_id == nil or participant.server_id == server_id do
-          [
-            %{
-              "participant_id" => identity,
-              "name" => participant.name,
-              "room_id" => room_id(participant.room_name)
-            }
-          ]
-        else
-          []
-        end
-      end)
-
-    {:reply, participants, state}
-  end
-
-  @impl true
-  def handle_cast({:replicate_presence, event}, state) do
-    {:noreply, apply_presence_event(state, event)}
-  end
-
-  @impl true
-  def handle_cast(
-        {:reconcile_participant,
-         %{identity: identity, room_name: room_name, name: name, server_id: server_id}},
-        state
-      )
-      when is_binary(identity) and identity != "" and is_binary(room_name) and room_name != "" do
     participant = %{
       room_name: room_name,
       server_id: server_id,
-      name: name,
-      occurred_at: DateTime.utc_now() |> DateTime.to_iso8601()
+      name: display_name,
+      occurred_at: now_iso()
     }
 
-    {:noreply, Map.put(state, identity, participant)}
+    :ets.insert(@table, {identity, participant})
+
+    if previous_room != room_name do
+      if previous, do: broadcast_presence(:left, identity, previous)
+      broadcast_replacement(previous, room_name, identity)
+      broadcast_presence(:joined, identity, participant)
+    end
+
+    {:reply, {:ok, previous_room}, state}
   end
 
-  def handle_cast({:reconcile_participant, _participant}, state), do: {:noreply, state}
+  def handle_call({:leave, identity, room_name}, _from, state) do
+    case lookup(identity) do
+      %{room_name: ^room_name} = participant ->
+        :ets.delete(@table, identity)
+        broadcast_presence(:left, identity, participant)
+
+      _ ->
+        :ok
+    end
+
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:close_room, room_name}, _from, state) do
+    for {identity, participant} <- :ets.tab2list(@table),
+        room_name(participant) == room_name do
+      :ets.delete(@table, identity)
+      broadcast_presence(:left, identity, participant)
+    end
+
+    {:reply, :ok, state}
+  end
 
   @impl true
-  def handle_cast({:reconcile_snapshot, participants}, state) do
+  def handle_call({:replicate_presence, event}, _from, state) do
+    apply_presence_event(event)
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_call(
+        {:reconcile_participant,
+         %{identity: identity, room_name: room_name, name: name, server_id: server_id}},
+        _from,
+        state
+      )
+      when is_binary(identity) and identity != "" and is_binary(room_name) and room_name != "" do
+    :ets.insert(
+      @table,
+      {identity,
+       %{room_name: room_name, server_id: server_id, name: name, occurred_at: now_iso()}}
+    )
+
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:reconcile_participant, _participant}, _from, state), do: {:reply, :ok, state}
+
+  @impl true
+  def handle_call({:reconcile_snapshot, participants}, _from, state) do
     active_identities = MapSet.new(participants, & &1.identity)
 
-    state =
-      state
-      |> Enum.reject(fn {identity, _participant} ->
-        not MapSet.member?(active_identities, identity)
-      end)
-      |> Map.new()
+    for {identity, _participant} <- :ets.tab2list(@table),
+        not MapSet.member?(active_identities, identity) do
+      :ets.delete(@table, identity)
+    end
 
-    state =
-      Enum.reduce(participants, state, fn participant, state ->
-        identity = participant.identity
-        current = Map.get(state, identity)
+    Enum.each(participants, fn participant ->
+      identity = participant.identity
+      current = lookup(identity)
 
-        Map.put(state, identity, %{
-          room_name: participant.room_name,
-          server_id: participant.server_id || (current && current.server_id),
-          name: participant.name,
-          occurred_at: DateTime.utc_now() |> DateTime.to_iso8601()
-        })
-      end)
+      :ets.insert(
+        @table,
+        {identity,
+         %{
+           room_name: participant.room_name,
+           server_id: participant.server_id || (current && current.server_id),
+           name: participant.name,
+           occurred_at: now_iso()
+         }}
+      )
+    end)
 
-    {:noreply, state}
+    {:reply, :ok, state}
   end
+
+  defp lookup(identity) do
+    case :ets.lookup(@table, identity) do
+      [{^identity, participant}] -> participant
+      [] -> nil
+    end
+  end
+
+  defp now_iso, do: DateTime.utc_now() |> DateTime.to_iso8601()
 
   defp disconnect_previous(nil, _room_name, _identity), do: :ok
   defp disconnect_previous(room_name, room_name, _identity), do: :ok
@@ -230,6 +240,11 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     event_type =
       if action == :joined, do: "voice.participant_joined", else: "voice.participant_left"
 
+    occurred_at =
+      if action == :joined,
+        do: participant.occurred_at,
+        else: leave_timestamp(participant.occurred_at)
+
     event = %{
       "event_id" => uuid(),
       "event_type" => event_type,
@@ -237,7 +252,7 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
       "room_id" => room_id(participant.room_name),
       "participant_id" => identity,
       "name" => participant.name,
-      "occurred_at" => participant.occurred_at
+      "occurred_at" => occurred_at
     }
 
     Phoenix.PubSub.broadcast(
@@ -255,7 +270,7 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     publisher().publish(event)
   end
 
-  defp apply_presence_event(state, %{
+  defp apply_presence_event(%{
          "event_type" => event_type,
          "participant_id" => identity,
          "room_id" => room_id,
@@ -267,31 +282,42 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
               is_binary(identity) and identity != "" and is_binary(room_id) and room_id != "" and
               is_binary(occurred_at) do
     incoming_room = "voice:" <> room_id
-    current = Map.get(state, identity)
+    current = lookup(identity)
 
     if newer_event?(current, occurred_at) do
       case event_type do
         "voice.participant_joined" ->
-          Map.put(state, identity, %{
-            room_name: incoming_room,
-            server_id: server_id,
-            name: name,
-            occurred_at: occurred_at
-          })
+          :ets.insert(
+            @table,
+            {identity,
+             %{
+               room_name: incoming_room,
+               server_id: server_id,
+               name: name,
+               occurred_at: occurred_at
+             }}
+          )
 
         "voice.participant_left" ->
           if current && room_name(current) == incoming_room do
-            Map.delete(state, identity)
-          else
-            state
+            :ets.delete(@table, identity)
           end
       end
-    else
-      state
     end
+
+    :ok
   end
 
-  defp apply_presence_event(state, _event), do: state
+  defp apply_presence_event(_event), do: :ok
+
+  defp leave_timestamp(joined_at) do
+    now = now_iso()
+
+    case DateTime.compare(parse_datetime(now), parse_datetime(joined_at)) do
+      :gt -> now
+      _ -> joined_at |> parse_datetime() |> DateTime.add(1, :microsecond) |> DateTime.to_iso8601()
+    end
+  end
 
   defp newer_event?(nil, _occurred_at), do: true
 
@@ -300,15 +326,9 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
       :lt
   end
 
-  defp parse_datetime(value) do
-    if is_nil(value) do
-      DateTime.from_unix!(0)
-    else
-      parse_datetime_value(value)
-    end
-  end
+  defp parse_datetime(nil), do: DateTime.from_unix!(0)
 
-  defp parse_datetime_value(value) do
+  defp parse_datetime(value) do
     case DateTime.from_iso8601(value) do
       {:ok, datetime, _offset} -> datetime
       _ -> DateTime.from_unix!(0)
@@ -322,9 +342,6 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
       DiscordiaSignaling.Voice.VoicePresencePublisher
     )
   end
-
-  defp remove_participant(state, _identity, nil), do: state
-  defp remove_participant(state, identity, _participant), do: Map.delete(state, identity)
 
   defp room_name(nil), do: nil
   defp room_name(%{room_name: room_name}), do: room_name
