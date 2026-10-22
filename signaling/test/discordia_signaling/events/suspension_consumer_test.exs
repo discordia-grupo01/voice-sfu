@@ -10,9 +10,23 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
   @key "admin.user_suspended"
 
   setup do
+    previous_room_service_result =
+      Application.get_env(:discordia_signaling, :test_room_service_result)
+
+    Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
     start_supervised!(SuspensionVersions)
 
-    on_exit(fn -> Application.delete_env(:discordia_signaling, :test_room_service_result) end)
+    on_exit(fn ->
+      if previous_room_service_result do
+        Application.put_env(
+          :discordia_signaling,
+          :test_room_service_result,
+          previous_room_service_result
+        )
+      else
+        Application.delete_env(:discordia_signaling, :test_room_service_result)
+      end
+    end)
 
     :ok
   end
@@ -301,7 +315,8 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
     test "stops when the broker cancels the consumer" do
       state = consumer_state()
 
-      assert {:stop, :normal, ^state} = SuspensionConsumer.handle_info({:basic_cancel, %{}}, state)
+      assert {:stop, :normal, ^state} =
+               SuspensionConsumer.handle_info({:basic_cancel, %{}}, state)
     end
 
     test "terminates cleanly without an AMQP connection" do
