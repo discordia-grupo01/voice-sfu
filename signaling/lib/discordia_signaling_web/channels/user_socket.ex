@@ -2,6 +2,7 @@ defmodule DiscordiaSignalingWeb.UserSocket do
   use Phoenix.Socket
 
   channel("voice:*", DiscordiaSignalingWeb.VoiceChannel)
+  channel("voice_server:*", DiscordiaSignalingWeb.VoiceChannel)
 
   @impl true
   def connect(_params, socket, _connect_info), do: {:ok, socket}

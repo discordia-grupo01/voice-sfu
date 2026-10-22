@@ -9,7 +9,7 @@ mix deps.get
 mix phx.server
 ```
 
-The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoenix channels use `/socket` and the `voice:*` topic.
+The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoenix channels use `/socket` and the `voice:*` and `voice_server:*` topics.
 
 ## Current boundary
 
