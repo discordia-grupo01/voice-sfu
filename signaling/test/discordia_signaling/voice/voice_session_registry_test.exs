@@ -14,11 +14,11 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
       DiscordiaSignaling.TestVoicePresencePublisher
     )
 
-    Application.put_env(:discordia_signaling, :test_presence_recipient, self())
     VoiceSessionRegistry.reconcile_snapshot([])
     VoiceSessionRegistry.participants()
     VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
     VoiceSessionRegistry.leave("registry-user-1", "voice:room-2")
+    Application.put_env(:discordia_signaling, :test_presence_recipient, self())
 
     on_exit(fn ->
       if previous_result do
@@ -77,6 +77,11 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
     assert :ok = VoiceSessionRegistry.leave("stamp-user", "voice:room-1")
 
     assert_receive {:voice_presence_published, %{"event_type" => "voice.participant_left"} = left}
+
+    assert DateTime.compare(
+             DateTime.from_iso8601(left["occurred_at"]) |> elem(1),
+             DateTime.from_iso8601(joined["occurred_at"]) |> elem(1)
+           ) == :gt
 
     # What another instance does with the two events it receives.
     VoiceSessionRegistry.replicate_presence(joined)

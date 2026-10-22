@@ -62,4 +62,31 @@ defmodule DiscordiaSignaling.Voice.VoicePresenceReconcilerTest do
     assert {:noreply, state} = VoicePresenceReconciler.handle_info(:reconcile, %{attempts: 1})
     assert state == %{attempts: 1}
   end
+
+  test "announces participants removed from LiveKit to local presence subscribers" do
+    Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_server:server-1")
+
+    assert {:ok, nil} =
+             VoiceSessionRegistry.switch(
+               "stale-user",
+               "voice:room-1",
+               "Ada",
+               "server-1"
+             )
+
+    assert_receive {:voice_presence, %{"event_type" => "voice.participant_joined"}}
+
+    Application.put_env(:discordia_signaling, :test_active_participants, {:ok, []})
+    assert {:noreply, %{}} = VoicePresenceReconciler.handle_info(:reconcile, %{})
+
+    assert_receive {:voice_presence,
+                    %{
+                      "event_type" => "voice.participant_left",
+                      "participant_id" => "stale-user",
+                      "room_id" => "room-1",
+                      "server_id" => "server-1"
+                    }}
+
+    assert VoiceSessionRegistry.participants("server-1") == []
+  end
 end
