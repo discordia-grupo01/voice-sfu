@@ -29,6 +29,10 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
   simultaneously running replicas.
 - `ADMIN_EVENTS_HMAC_SECRET`: secret shared with admin to verify the signature of `admin.user_suspended`. If empty, the suspension consumer does not start (an error is logged) and the rest of the service keeps running.
 - `VOICE_AUTHZ_MODE`: `servers_api` for membership and `VIEW_CHANNELS` checks; `allow_authenticated` is local-only.
+- `PHOENIX_CHECK_ORIGINS`: comma-separated browser origins allowed to open
+  Phoenix sockets. Local defaults are `http://localhost:3000` and
+  `http://127.0.0.1:3000`; production must include the exact HTTPS origin of
+  the deployed web client.
 
 ## CI/CD con Fly.io
 
@@ -42,6 +46,10 @@ Antes del primer despliegue, crea las aplicaciones `discordia-signaling-staging`
 `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_URL`, `SERVERS_URL`, `RABBITMQ_URL` y
 `ADMIN_EVENTS_HMAC_SECRET` (mismo valor que admin; se carga con `fly secrets`).
 Los manifests solo contienen configuración no sensible.
+
+The production manifest allows `https://discordia-g1.vercel.app` to open the
+voice socket. If the Vercel deployment uses another custom domain, update
+`PHOENIX_CHECK_ORIGINS` before deploying. Do not use `check_origin: false`.
 
 `POST /api/voice/token` accepts only `{ "channel_id": "..." }`. Phoenix derives
 the LiveKit room name as `voice:<channel_id>` and forwards the validated JWT to
