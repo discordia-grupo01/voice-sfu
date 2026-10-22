@@ -182,9 +182,10 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   def handle_call({:reconcile_snapshot, participants}, _from, state) do
     active_identities = MapSet.new(participants, & &1.identity)
 
-    for {identity, _participant} <- :ets.tab2list(@table),
+    for {identity, participant} <- :ets.tab2list(@table),
         not MapSet.member?(active_identities, identity) do
       :ets.delete(@table, identity)
+      broadcast_presence(:left, identity, participant)
     end
 
     Enum.each(participants, fn participant ->
@@ -240,6 +241,12 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   end
 
   defp broadcast_presence(action, identity, participant) do
+    event = presence_event(action, identity, participant)
+    broadcast_presence_event(event)
+    publisher().publish(event)
+  end
+
+  defp presence_event(action, identity, participant) do
     event_type =
       if action == :joined, do: "voice.participant_joined", else: "voice.participant_left"
 
@@ -248,7 +255,7 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
         do: participant.occurred_at,
         else: leave_timestamp(participant.occurred_at)
 
-    event = %{
+    %{
       "event_id" => uuid(),
       "event_type" => event_type,
       "server_id" => participant.server_id,
@@ -257,9 +264,6 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
       "name" => participant.name,
       "occurred_at" => occurred_at
     }
-
-    broadcast_presence_event(event)
-    publisher().publish(event)
   end
 
   defp broadcast_presence_event(

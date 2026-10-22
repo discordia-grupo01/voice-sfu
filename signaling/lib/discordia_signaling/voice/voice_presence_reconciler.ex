@@ -32,7 +32,7 @@ defmodule DiscordiaSignaling.Voice.VoicePresenceReconciler do
         {:noreply, state}
 
       {:error, reason} ->
-        Logger.warning("voice_presence_reconcile_failed", reason: inspect(reason))
+        Logger.warning("voice_presence_reconcile_failed reason=#{inspect(reason)}")
         Process.send_after(self(), :reconcile, 1_000)
         {:noreply, state}
     end
