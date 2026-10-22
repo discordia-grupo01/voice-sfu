@@ -1,5 +1,15 @@
 import Config
 
+allowed_origins =
+  System.get_env(
+    "PHOENIX_CHECK_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000"
+  )
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+
+config :discordia_signaling, DiscordiaSignalingWeb.Endpoint, check_origin: allowed_origins
+
 config :discordia_signaling, :livekit,
   url: System.get_env("LIVEKIT_URL", "ws://localhost:7880"),
   api_key: System.get_env("LIVEKIT_API_KEY", "devkey"),
