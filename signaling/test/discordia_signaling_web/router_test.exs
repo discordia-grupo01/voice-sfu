@@ -178,12 +178,15 @@ defmodule DiscordiaSignalingWeb.RouterTest do
       |> Router.call(Router.init([]))
 
     assert conn.status == 200
+    started_at = VoiceSessionRegistry.room_started_at("550e8400-e29b-41d4-a716-446655440000")
+    assert is_binary(started_at)
 
     assert Jason.decode!(conn.resp_body) == %{
              "server_id" => server_id,
              "channels" => [
                %{
                  "channel_id" => "550e8400-e29b-41d4-a716-446655440000",
+                 "started_at" => started_at,
                  "participants" => [
                    %{"name" => "Ada", "participant_id" => user_id}
                  ]
