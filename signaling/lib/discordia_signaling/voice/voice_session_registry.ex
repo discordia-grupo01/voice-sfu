@@ -8,6 +8,8 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   @pubsub DiscordiaSignaling.PubSub
   @table :voice_sessions
   @starts_table :voice_room_starts
+  @room_servers_table :voice_room_servers
+  @default_reconcile_grace_ms 15_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, %{}, Keyword.put_new(opts, :name, __MODULE__))
@@ -120,6 +122,7 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   def init(state) do
     :ets.new(@table, [:named_table, :set, :protected, read_concurrency: true])
     :ets.new(@starts_table, [:named_table, :set, :protected, read_concurrency: true])
+    :ets.new(@room_servers_table, [:named_table, :set, :protected, read_concurrency: true])
     {:ok, state}
   end
 
@@ -132,10 +135,12 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
       room_name: room_name,
       server_id: server_id,
       name: display_name,
-      occurred_at: now_iso()
+      occurred_at: now_iso(),
+      registered_at: now_ms()
     }
 
     :ets.insert(@table, {identity, participant})
+    remember_room_server(room_name, server_id)
     sync_room_start(room_name, participant.occurred_at)
 
     if previous_room != room_name do
@@ -198,12 +203,21 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     previous_room = identity |> lookup() |> room_name()
     occurred_at = now_iso()
 
+    server_id = server_id || room_server(room_name)
+
     :ets.insert(
       @table,
       {identity,
-       %{room_name: room_name, server_id: server_id, name: name, occurred_at: occurred_at}}
+       %{
+         room_name: room_name,
+         server_id: server_id,
+         name: name,
+         occurred_at: occurred_at,
+         registered_at: now_ms()
+       }}
     )
 
+    remember_room_server(room_name, server_id)
     sync_room_start(room_name, occurred_at)
     if previous_room != room_name, do: sync_room_start(previous_room, occurred_at)
 
@@ -219,6 +233,7 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     removed =
       for {identity, participant} <- :ets.tab2list(@table),
           not MapSet.member?(active_identities, identity),
+          not recently_registered?(participant),
           do: {identity, participant}
 
     Enum.each(removed, fn {identity, _participant} -> :ets.delete(@table, identity) end)
@@ -226,17 +241,27 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     Enum.each(participants, fn participant ->
       identity = participant.identity
       current = lookup(identity)
+      same_room? = current != nil and current.room_name == participant.room_name
 
-      :ets.insert(
-        @table,
-        {identity,
-         %{
-           room_name: participant.room_name,
-           server_id: participant.server_id || (current && current.server_id),
-           name: participant.name,
-           occurred_at: now_iso()
-         }}
-      )
+      unless current != nil and not same_room? and recently_registered?(current) do
+        server_id =
+          participant.server_id || (current && current.server_id) ||
+            room_server(participant.room_name)
+
+        :ets.insert(
+          @table,
+          {identity,
+           %{
+             room_name: participant.room_name,
+             server_id: server_id,
+             name: participant.name,
+             occurred_at: now_iso(),
+             registered_at: if(same_room?, do: current[:registered_at], else: now_ms())
+           }}
+        )
+
+        remember_room_server(participant.room_name, server_id)
+      end
     end)
 
     sync_all_room_starts(participants)
@@ -256,6 +281,40 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   end
 
   defp now_iso, do: DateTime.utc_now() |> DateTime.to_iso8601()
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
+
+  defp recently_registered?(participant) do
+    case participant[:registered_at] do
+      registered_at when is_integer(registered_at) ->
+        now_ms() - registered_at < reconcile_grace_ms()
+
+      _ ->
+        false
+    end
+  end
+
+  defp reconcile_grace_ms do
+    Application.get_env(
+      :discordia_signaling,
+      :reconcile_grace_ms,
+      @default_reconcile_grace_ms
+    )
+  end
+
+  defp remember_room_server(room_name, server_id)
+       when is_binary(room_name) and is_binary(server_id) do
+    :ets.insert(@room_servers_table, {room_name, server_id})
+  end
+
+  defp remember_room_server(_room_name, _server_id), do: :ok
+
+  defp room_server(room_name) do
+    case :ets.lookup(@room_servers_table, room_name) do
+      [{^room_name, server_id}] -> server_id
+      [] -> nil
+    end
+  end
 
   defp sync_room_start(nil, _started_at), do: :ok
 
@@ -411,9 +470,12 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
                room_name: incoming_room,
                server_id: server_id,
                name: name,
-               occurred_at: occurred_at
+               occurred_at: occurred_at,
+               registered_at: now_ms()
              }}
           )
+
+          remember_room_server(incoming_room, server_id)
 
           sync_room_start(incoming_room, occurred_at)
           previous_room = room_name(current)
