@@ -1,10 +1,13 @@
 defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
-  @moduledoc "Tracks active voice rooms and publishes participant presence changes."
+  @moduledoc """
+  Tracks active voice rooms and publishes participant presence changes.
+  """
 
   use GenServer
 
   @pubsub DiscordiaSignaling.PubSub
   @table :voice_sessions
+  @starts_table :voice_room_starts
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, %{}, Keyword.put_new(opts, :name, __MODULE__))
@@ -83,6 +86,21 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     end)
   end
 
+  @spec room_starts() :: %{String.t() => String.t()}
+  def room_starts do
+    @starts_table
+    |> :ets.tab2list()
+    |> Map.new()
+  end
+
+  @spec room_started_at(String.t()) :: String.t() | nil
+  def room_started_at(room_id) when is_binary(room_id) do
+    case :ets.lookup(@starts_table, room_id) do
+      [{^room_id, started_at}] -> started_at
+      [] -> nil
+    end
+  end
+
   @spec replicate_presence(map()) :: :ok
   def replicate_presence(event) when is_map(event) do
     GenServer.call(__MODULE__, {:replicate_presence, event})
@@ -101,6 +119,7 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   @impl true
   def init(state) do
     :ets.new(@table, [:named_table, :set, :protected, read_concurrency: true])
+    :ets.new(@starts_table, [:named_table, :set, :protected, read_concurrency: true])
     {:ok, state}
   end
 
@@ -117,8 +136,10 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     }
 
     :ets.insert(@table, {identity, participant})
+    sync_room_start(room_name, participant.occurred_at)
 
     if previous_room != room_name do
+      sync_room_start(previous_room, participant.occurred_at)
       if previous, do: broadcast_presence(:left, identity, previous)
       broadcast_replacement(previous, room_name, identity)
       broadcast_presence(:joined, identity, participant)
@@ -131,6 +152,7 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     case lookup(identity) do
       %{room_name: ^room_name} = participant ->
         :ets.delete(@table, identity)
+        sync_room_start(room_name, now_iso())
         broadcast_presence(:left, identity, participant)
 
       _ ->
@@ -141,11 +163,17 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   end
 
   def handle_call({:close_room, room_name}, _from, state) do
-    for {identity, participant} <- :ets.tab2list(@table),
-        room_name(participant) == room_name do
-      :ets.delete(@table, identity)
+    closed =
+      for {identity, participant} <- :ets.tab2list(@table),
+          room_name(participant) == room_name,
+          do: {identity, participant}
+
+    Enum.each(closed, fn {identity, _participant} -> :ets.delete(@table, identity) end)
+    sync_room_start(room_name, now_iso())
+
+    Enum.each(closed, fn {identity, participant} ->
       broadcast_presence(:left, identity, participant)
-    end
+    end)
 
     {:reply, :ok, state}
   end
@@ -167,11 +195,17 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
         state
       )
       when is_binary(identity) and identity != "" and is_binary(room_name) and room_name != "" do
+    previous_room = identity |> lookup() |> room_name()
+    occurred_at = now_iso()
+
     :ets.insert(
       @table,
       {identity,
-       %{room_name: room_name, server_id: server_id, name: name, occurred_at: now_iso()}}
+       %{room_name: room_name, server_id: server_id, name: name, occurred_at: occurred_at}}
     )
+
+    sync_room_start(room_name, occurred_at)
+    if previous_room != room_name, do: sync_room_start(previous_room, occurred_at)
 
     {:reply, :ok, state}
   end
@@ -182,11 +216,12 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   def handle_call({:reconcile_snapshot, participants}, _from, state) do
     active_identities = MapSet.new(participants, & &1.identity)
 
-    for {identity, participant} <- :ets.tab2list(@table),
-        not MapSet.member?(active_identities, identity) do
-      :ets.delete(@table, identity)
-      broadcast_presence(:left, identity, participant)
-    end
+    removed =
+      for {identity, participant} <- :ets.tab2list(@table),
+          not MapSet.member?(active_identities, identity),
+          do: {identity, participant}
+
+    Enum.each(removed, fn {identity, _participant} -> :ets.delete(@table, identity) end)
 
     Enum.each(participants, fn participant ->
       identity = participant.identity
@@ -204,6 +239,12 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
       )
     end)
 
+    sync_all_room_starts(participants)
+
+    Enum.each(removed, fn {identity, participant} ->
+      broadcast_presence(:left, identity, participant)
+    end)
+
     {:reply, :ok, state}
   end
 
@@ -215,6 +256,61 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   end
 
   defp now_iso, do: DateTime.utc_now() |> DateTime.to_iso8601()
+
+  defp sync_room_start(nil, _started_at), do: :ok
+
+  defp sync_room_start(room_name, started_at) do
+    if room_occupied?(room_name) do
+      :ets.insert_new(@starts_table, {room_id(room_name), to_millisecond_iso(started_at)})
+    else
+      :ets.delete(@starts_table, room_id(room_name))
+    end
+
+    :ok
+  end
+
+  defp sync_all_room_starts(snapshot) do
+    occupied =
+      @table
+      |> :ets.tab2list()
+      |> MapSet.new(fn {_identity, participant} -> room_id(participant.room_name) end)
+
+    for {room_id, _started_at} <- :ets.tab2list(@starts_table),
+        not MapSet.member?(occupied, room_id) do
+      :ets.delete(@starts_table, room_id)
+    end
+
+    livekit_starts =
+      for %{room_name: room_name, room_started_at: started_at} <- snapshot,
+          is_binary(started_at),
+          into: %{},
+          do: {room_id(room_name), started_at}
+
+    now = now_iso()
+
+    Enum.each(occupied, fn room_id ->
+      started_at = Map.get(livekit_starts, room_id, now)
+      :ets.insert_new(@starts_table, {room_id, to_millisecond_iso(started_at)})
+    end)
+  end
+
+  defp room_occupied?(room_name) do
+    @table
+    |> :ets.tab2list()
+    |> Enum.any?(fn {_identity, participant} -> participant.room_name == room_name end)
+  end
+
+  defp to_millisecond_iso(timestamp) do
+    datetime =
+      case DateTime.from_iso8601(timestamp) do
+        {:ok, datetime, _offset} -> datetime
+        _ -> DateTime.utc_now()
+      end
+
+    datetime
+    |> DateTime.truncate(:millisecond)
+    |> DateTime.to_iso8601()
+  end
 
   defp disconnect_previous(nil, _room_name, _identity), do: :ok
   defp disconnect_previous(room_name, room_name, _identity), do: :ok
@@ -273,6 +369,8 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
          } = event
        )
        when is_binary(room_id) and is_binary(server_id) do
+    event = Map.put(event, "room_started_at", room_started_at(room_id))
+
     Phoenix.PubSub.broadcast(
       @pubsub,
       "voice:#{room_id}",
@@ -317,9 +415,14 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
              }}
           )
 
+          sync_room_start(incoming_room, occurred_at)
+          previous_room = room_name(current)
+          if previous_room != incoming_room, do: sync_room_start(previous_room, occurred_at)
+
         "voice.participant_left" ->
           if current && room_name(current) == incoming_room do
             :ets.delete(@table, identity)
+            sync_room_start(incoming_room, occurred_at)
           end
       end
     end
