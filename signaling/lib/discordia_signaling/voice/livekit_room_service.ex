@@ -134,14 +134,17 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
   defp list_room_participants(config, %{"rooms" => rooms}) when is_list(rooms) do
     rooms
     |> Enum.reduce_while({:ok, []}, fn
-      %{"name" => room_name}, {:ok, participants} ->
+      %{"name" => room_name} = room, {:ok, participants} ->
         case request_json(
                config,
                "/twirp/livekit.RoomService/ListParticipants",
                %{"room" => room_name}
              ) do
           {:ok, %{"participants" => room_participants}} when is_list(room_participants) ->
-            {:cont, {:ok, participants ++ normalize_participants(room_name, room_participants)}}
+            room_participants =
+              normalize_participants(room_name, room_started_at(room), room_participants)
+
+            {:cont, {:ok, participants ++ room_participants}}
 
           {:ok, _response} ->
             {:halt, {:error, :invalid_response}}
@@ -157,12 +160,37 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
 
   defp list_room_participants(_config, _response), do: {:error, :invalid_response}
 
-  defp normalize_participants(room_name, participants) do
+  defp room_started_at(room) do
+    cond do
+      millis = positive_integer(room["creation_time_ms"] || room["creationTimeMs"]) ->
+        millis |> DateTime.from_unix!(:millisecond) |> DateTime.to_iso8601()
+
+      seconds = positive_integer(room["creation_time"] || room["creationTime"]) ->
+        seconds |> DateTime.from_unix!() |> DateTime.to_iso8601()
+
+      true ->
+        nil
+    end
+  end
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: value
+
+  defp positive_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer > 0 -> integer
+      _ -> nil
+    end
+  end
+
+  defp positive_integer(_value), do: nil
+
+  defp normalize_participants(room_name, room_started_at, participants) do
     Enum.flat_map(participants, fn
       %{"identity" => identity, "name" => name} when is_binary(identity) and identity != "" ->
         [
           %{
             room_name: room_name,
+            room_started_at: room_started_at,
             identity: identity,
             name: if(is_binary(name) and name != "", do: name, else: identity),
             server_id: nil,
