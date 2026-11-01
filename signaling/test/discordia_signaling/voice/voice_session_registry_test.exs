@@ -292,6 +292,85 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
     end
   end
 
+  describe "reconciliation right after joining" do
+    setup do
+      Application.put_env(:discordia_signaling, :reconcile_grace_ms, 60_000)
+      on_exit(fn -> Application.put_env(:discordia_signaling, :reconcile_grace_ms, 0) end)
+      :ok
+    end
+
+    test "keeps someone who is not in LiveKit yet" do
+      VoiceSessionRegistry.switch("grace-user-1", "voice:room-1", "Ada", "server-1")
+
+      VoiceSessionRegistry.reconcile_snapshot([])
+
+      assert [%{"participant_id" => "grace-user-1", "room_id" => "room-1"}] =
+               VoiceSessionRegistry.participants("server-1")
+
+      assert is_binary(VoiceSessionRegistry.room_started_at("room-1"))
+    end
+
+    test "does not move someone back to the room LiveKit still lists" do
+      VoiceSessionRegistry.switch("grace-user-1", "voice:room-2", "Ada", "server-1")
+
+      VoiceSessionRegistry.reconcile_snapshot([
+        %{identity: "grace-user-1", room_name: "voice:room-1", name: "Ada", server_id: nil}
+      ])
+
+      assert VoiceSessionRegistry.active_room("grace-user-1") == "voice:room-2"
+      assert VoiceSessionRegistry.room_started_at("room-1") == nil
+    end
+  end
+
+  describe "server of a reconciled participant" do
+    test "comes back from the room after the participant was dropped" do
+      VoiceSessionRegistry.switch("server-user-1", "voice:room-1", "Ada", "server-1")
+      VoiceSessionRegistry.reconcile_snapshot([])
+      assert VoiceSessionRegistry.participants("server-1") == []
+
+      VoiceSessionRegistry.reconcile_snapshot([
+        %{identity: "server-user-1", room_name: "voice:room-1", name: "Ada", server_id: nil}
+      ])
+
+      assert [%{"participant_id" => "server-user-1", "room_id" => "room-1"}] =
+               VoiceSessionRegistry.participants("server-1")
+    end
+
+    test "comes from the room for someone LiveKit reports first" do
+      VoiceSessionRegistry.switch("server-user-1", "voice:room-1", "Ada", "server-1")
+
+      VoiceSessionRegistry.reconcile_snapshot([
+        %{identity: "server-user-1", room_name: "voice:room-1", name: "Ada", server_id: nil},
+        %{identity: "server-user-2", room_name: "voice:room-1", name: "Bea", server_id: nil}
+      ])
+
+      assert ["server-user-1", "server-user-2"] =
+               "server-1"
+               |> VoiceSessionRegistry.participants()
+               |> Enum.map(& &1["participant_id"])
+               |> Enum.sort()
+    end
+
+    test "is also learnt from replicated events" do
+      VoiceSessionRegistry.replicate_presence(%{
+        "event_type" => "voice.participant_joined",
+        "event_id" => "server-join",
+        "occurred_at" => "2026-11-01T16:00:00Z",
+        "server_id" => "server-1",
+        "room_id" => "room-1",
+        "participant_id" => "server-user-1",
+        "name" => "Ada"
+      })
+
+      VoiceSessionRegistry.reconcile_snapshot([
+        %{identity: "server-user-2", room_name: "voice:room-1", name: "Bea", server_id: nil}
+      ])
+
+      assert [%{"participant_id" => "server-user-2"}] =
+               VoiceSessionRegistry.participants("server-1")
+    end
+  end
+
   defp millisecond_iso(timestamp) do
     {:ok, datetime, _offset} = DateTime.from_iso8601(timestamp)
     datetime |> DateTime.truncate(:millisecond) |> DateTime.to_iso8601()
