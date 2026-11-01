@@ -90,7 +90,11 @@ optimization and is not the replication mechanism.
 When a node starts, `VoicePresenceReconciler` asks LiveKit for the current
 rooms and participants and rebuilds the local snapshot. It retries while
 LiveKit is unavailable and repeats the reconciliation periodically, removing
-participants that are no longer connected. LiveKit does not expose the
+participants that are no longer connected. Someone registered in the last
+15 s (`reconcile_grace_ms`) is neither removed nor moved by it: they may not
+have reached their LiveKit room yet, or LiveKit may still list them in the room
+they left. The registry also remembers each room's server, so a participant the
+reconciliation adds back keeps showing in that server's snapshot. LiveKit does not expose the
 application `server_id` in this query; an existing local `server_id` is
 preserved, while a newly reconstructed participant is visible only in
 unfiltered snapshots until the next authenticated access flow supplies the
