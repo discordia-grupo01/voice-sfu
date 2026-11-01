@@ -55,12 +55,15 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
       )
 
     assert conn.status == 200
+    started_at = VoiceSessionRegistry.room_started_at("room-1")
+    assert is_binary(started_at)
 
     assert Jason.decode!(conn.resp_body) == %{
              "server_id" => "server-1",
              "channels" => [
                %{
                  "channel_id" => "room-1",
+                 "started_at" => started_at,
                  "participants" => [
                    %{"name" => "Ada", "participant_id" => "presence-controller-user"}
                  ]
@@ -69,6 +72,24 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
            }
 
     assert :ok = VoiceSessionRegistry.leave("presence-controller-user", "voice:room-1")
+  end
+
+  test "a call keeps its start while someone is still in the channel" do
+    VoiceSessionRegistry.switch("presence-first", "voice:room-1", "Ada", "server-1")
+    started_at = VoiceSessionRegistry.room_started_at("room-1")
+    VoiceSessionRegistry.switch("presence-second", "voice:room-1", "Bea", "server-1")
+    VoiceSessionRegistry.leave("presence-first", "voice:room-1")
+
+    conn =
+      VoicePresenceController.index(
+        conn(:get, "/api/voice/participants"),
+        %{"server_id" => "server-1"}
+      )
+
+    assert %{"channels" => [%{"channel_id" => "room-1", "started_at" => ^started_at}]} =
+             Jason.decode!(conn.resp_body)
+
+    VoiceSessionRegistry.leave("presence-second", "voice:room-1")
   end
 
   test "rejects a request without a server id" do
