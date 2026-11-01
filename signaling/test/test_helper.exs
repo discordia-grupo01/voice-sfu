@@ -6,3 +6,5 @@ Application.put_env(
   :livekit_room_service,
   DiscordiaSignaling.TestLiveKitRoomService
 )
+
+Application.put_env(:discordia_signaling, :reconcile_grace_ms, 0)
