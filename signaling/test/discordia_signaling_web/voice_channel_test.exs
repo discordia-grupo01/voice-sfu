@@ -137,8 +137,11 @@ defmodule DiscordiaSignalingWeb.VoiceChannelTest do
       "participant_id" => "peer-1",
       "name" => "Ada",
       "room_id" => "room-1",
-      "server_id" => "server-1"
+      "server_id" => "server-1",
+      "room_started_at" => started_at
     })
+
+    assert is_binary(started_at)
 
     {:ok, _, _second_socket} =
       subscribe_and_join(
@@ -158,7 +161,8 @@ defmodule DiscordiaSignalingWeb.VoiceChannelTest do
         "participant_id" => "peer-2",
         "name" => "Bea",
         "room_id" => "room-1",
-        "server_id" => "server-1"
+        "server_id" => "server-1",
+        "room_started_at" => ^started_at
       } = second_join_event
     )
 
@@ -173,7 +177,8 @@ defmodule DiscordiaSignalingWeb.VoiceChannelTest do
         "participant_id" => "peer-1",
         "name" => "Ada",
         "room_id" => "room-1",
-        "server_id" => "server-1"
+        "server_id" => "server-1",
+        "room_started_at" => ^started_at
       } = first_leave_event
     )
 
