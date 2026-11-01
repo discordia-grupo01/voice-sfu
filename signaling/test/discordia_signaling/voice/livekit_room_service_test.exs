@@ -14,6 +14,7 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomServiceTest do
     assert {:ok, [participant]} = result
     assert participant.identity == "user-1"
     assert participant.room_name == "voice:channel-1"
+    assert participant.room_started_at == "2026-11-01T16:00:00Z"
   end
 
   test "rejects an unconfigured LiveKit service" do
@@ -161,7 +162,9 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomServiceTest do
       Task.async(fn ->
         {:ok, socket} = :gen_tcp.accept(listen_socket)
         list_rooms_request = recv_request(socket, "")
-        send_json(socket, %{"rooms" => [%{"name" => "voice:channel-1"}]})
+        send_json(socket, %{
+          "rooms" => [%{"name" => "voice:channel-1", "creation_time" => "1793548800"}]
+        })
         :gen_tcp.close(socket)
 
         {:ok, socket} = :gen_tcp.accept(listen_socket)

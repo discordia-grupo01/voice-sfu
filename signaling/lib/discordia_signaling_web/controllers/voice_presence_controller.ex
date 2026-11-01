@@ -15,7 +15,9 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
           |> VoiceSessionRegistry.participants()
           |> Enum.group_by(& &1["room_id"])
 
-        json(conn, %{server_id: server_id, channels: channels_response(participants)})
+        starts = VoiceSessionRegistry.room_starts()
+
+        json(conn, %{server_id: server_id, channels: channels_response(participants, starts)})
 
       :forbidden ->
         conn
@@ -35,11 +37,15 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
     |> json(%{error: "server_id_required"})
   end
 
-  defp channels_response(participants) do
+  defp channels_response(participants, starts) do
     participants
     |> Enum.sort_by(fn {room_id, _} -> room_id end)
     |> Enum.map(fn {room_id, members} ->
-      %{channel_id: room_id, participants: Enum.map(members, &Map.drop(&1, ["room_id"]))}
+      %{
+        channel_id: room_id,
+        started_at: Map.get(starts, room_id),
+        participants: Enum.map(members, &Map.drop(&1, ["room_id"]))
+      }
     end)
   end
 

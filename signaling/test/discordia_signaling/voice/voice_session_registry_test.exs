@@ -133,11 +133,168 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
       "name" => "Ada"
     }
 
-    assert :ok = VoiceSessionRegistry.replicate_presence(event)
-    assert_receive {:voice_presence, ^event}
+    pushed = Map.put(event, "room_started_at", "2026-10-07T12:00:00Z")
 
     assert :ok = VoiceSessionRegistry.replicate_presence(event)
-    refute_receive {:voice_presence, ^event}
+    assert_receive {:voice_presence, ^pushed}
+
+    assert :ok = VoiceSessionRegistry.replicate_presence(event)
+    refute_receive {:voice_presence, _event}
+  end
+
+  describe "call start" do
+    test "the first participant in an empty room starts the call" do
+      assert {:ok, nil} =
+               VoiceSessionRegistry.switch("start-user-1", "voice:room-1", "Ada", "server-1")
+
+      assert_receive {:voice_presence_published, %{"occurred_at" => joined_at}}
+
+      started_at = VoiceSessionRegistry.room_started_at("room-1")
+      assert started_at == millisecond_iso(joined_at)
+      assert VoiceSessionRegistry.room_starts() == %{"room-1" => started_at}
+    end
+
+    test "later participants do not move the start" do
+      VoiceSessionRegistry.switch("start-user-1", "voice:room-1", "Ada", "server-1")
+      started_at = VoiceSessionRegistry.room_started_at("room-1")
+
+      Process.sleep(5)
+      VoiceSessionRegistry.switch("start-user-2", "voice:room-1", "Bea", "server-1")
+
+      assert VoiceSessionRegistry.room_started_at("room-1") == started_at
+    end
+
+    test "the call goes on when the first participant leaves" do
+      VoiceSessionRegistry.switch("start-user-1", "voice:room-1", "Ada", "server-1")
+      VoiceSessionRegistry.switch("start-user-2", "voice:room-1", "Bea", "server-1")
+      started_at = VoiceSessionRegistry.room_started_at("room-1")
+
+      assert :ok = VoiceSessionRegistry.leave("start-user-1", "voice:room-1")
+
+      assert VoiceSessionRegistry.room_started_at("room-1") == started_at
+    end
+
+    test "the call ends when the room empties and the next one starts again" do
+      VoiceSessionRegistry.switch("start-user-1", "voice:room-1", "Ada", "server-1")
+      first_start = VoiceSessionRegistry.room_started_at("room-1")
+
+      assert :ok = VoiceSessionRegistry.leave("start-user-1", "voice:room-1")
+      assert VoiceSessionRegistry.room_started_at("room-1") == nil
+      assert VoiceSessionRegistry.room_starts() == %{}
+
+      Process.sleep(5)
+      VoiceSessionRegistry.switch("start-user-1", "voice:room-1", "Ada", "server-1")
+
+      second_start = VoiceSessionRegistry.room_started_at("room-1")
+      assert is_binary(second_start)
+      assert second_start != first_start
+    end
+
+    test "switching rooms ends the call left empty and starts the new one" do
+      VoiceSessionRegistry.switch("start-user-1", "voice:room-1", "Ada", "server-1")
+      VoiceSessionRegistry.switch("start-user-1", "voice:room-2", "Ada", "server-1")
+
+      assert VoiceSessionRegistry.room_started_at("room-1") == nil
+      assert is_binary(VoiceSessionRegistry.room_started_at("room-2"))
+    end
+
+    test "closing a room ends its call" do
+      VoiceSessionRegistry.switch("start-user-1", "voice:room-1", "Ada", "server-1")
+      VoiceSessionRegistry.switch("start-user-2", "voice:room-1", "Bea", "server-1")
+
+      assert :ok = VoiceSessionRegistry.close_room("voice:room-1")
+
+      assert VoiceSessionRegistry.room_started_at("room-1") == nil
+    end
+
+    test "replicated events use their own timestamp, so every node agrees" do
+      join = fn identity, at ->
+        VoiceSessionRegistry.replicate_presence(%{
+          "event_type" => "voice.participant_joined",
+          "event_id" => "join-#{identity}",
+          "occurred_at" => at,
+          "server_id" => "server-1",
+          "room_id" => "room-1",
+          "participant_id" => identity,
+          "name" => identity
+        })
+      end
+
+      join.("remote-start-1", "2026-10-07T12:00:00.123456Z")
+      join.("remote-start-2", "2026-10-07T12:05:00Z")
+      assert VoiceSessionRegistry.room_started_at("room-1") == "2026-10-07T12:00:00.123Z"
+
+      VoiceSessionRegistry.replicate_presence(%{
+        "event_type" => "voice.participant_left",
+        "event_id" => "leave-remote-start-1",
+        "occurred_at" => "2026-10-07T12:10:00Z",
+        "server_id" => "server-1",
+        "room_id" => "room-1",
+        "participant_id" => "remote-start-1",
+        "name" => "remote-start-1"
+      })
+
+      assert VoiceSessionRegistry.room_started_at("room-1") == "2026-10-07T12:00:00.123Z"
+    end
+
+    test "socket subscribers get the start; the RabbitMQ event stays unchanged" do
+      Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_server:server-1")
+
+      VoiceSessionRegistry.switch("start-user-1", "voice:room-1", "Ada", "server-1")
+      started_at = VoiceSessionRegistry.room_started_at("room-1")
+
+      assert_receive {:voice_presence,
+                      %{
+                        "event_type" => "voice.participant_joined",
+                        "room_started_at" => ^started_at
+                      }}
+
+      assert_receive {:voice_presence_published, published}
+      refute Map.has_key?(published, "room_started_at")
+
+      VoiceSessionRegistry.leave("start-user-1", "voice:room-1")
+
+      assert_receive {:voice_presence,
+                      %{"event_type" => "voice.participant_left", "room_started_at" => nil}}
+    end
+
+    test "a reconciled room takes the LiveKit creation time" do
+      VoiceSessionRegistry.reconcile_snapshot([
+        %{
+          identity: "reconciled-start-user",
+          room_name: "voice:room-1",
+          room_started_at: "2026-11-01T16:00:00Z",
+          name: "Ada",
+          server_id: nil
+        }
+      ])
+
+      assert VoiceSessionRegistry.room_started_at("room-1") == "2026-11-01T16:00:00Z"
+    end
+
+    test "reconciling keeps a start already known and drops empty rooms" do
+      VoiceSessionRegistry.switch("start-user-1", "voice:room-1", "Ada", "server-1")
+      VoiceSessionRegistry.switch("start-user-2", "voice:room-2", "Bea", "server-1")
+      started_at = VoiceSessionRegistry.room_started_at("room-1")
+
+      VoiceSessionRegistry.reconcile_snapshot([
+        %{
+          identity: "start-user-1",
+          room_name: "voice:room-1",
+          room_started_at: "2020-01-01T00:00:00Z",
+          name: "Ada",
+          server_id: "server-1"
+        }
+      ])
+
+      assert VoiceSessionRegistry.room_started_at("room-1") == started_at
+      assert VoiceSessionRegistry.room_started_at("room-2") == nil
+    end
+  end
+
+  defp millisecond_iso(timestamp) do
+    {:ok, datetime, _offset} = DateTime.from_iso8601(timestamp)
+    datetime |> DateTime.truncate(:millisecond) |> DateTime.to_iso8601()
   end
 
   test "replicated leave removes the matching current room" do
