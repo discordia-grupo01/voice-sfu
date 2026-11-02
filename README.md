@@ -33,6 +33,8 @@ mix phx.server
 
 Phoenix escucha en `http://localhost:4000`, expone `GET /livez` y `GET /readyz`. El endpoint autenticado `POST /api/voice/token` recibe `{ "channel_id": "..." }`, valida el acceso en `servers` y devuelve un token para la sala derivada `voice:<channel_id>`.
 
+`POST /api/voice/screen-token` (mismo body) es para compartir la pantalla desde el APK de Android: la llamada de mobile corre en un WebView que no puede capturar la pantalla, así que la app entra a la misma sala una segunda vez con la identidad `<user_id>:screen`, que solo puede publicar la pantalla y no se suscribe a nada. Solo se emite si el usuario ya está en esa sala (`409 voice_not_in_channel`) y no está silenciado por un moderador (`403 voice_screen_share_forbidden`). Ese acompañante no cuenta como participante (no aparece en la presencia), y signaling lo saca junto con su dueño al salir, cambiar de canal, perder el acceso o ser silenciado.
+
 ### LiveKit
 
 LiveKit escucha en `ws://localhost:7880` y publica media UDP en el rango `51000-51100`. El cliente debe conectarse usando un SDK de LiveKit con el token emitido por Phoenix.

@@ -11,7 +11,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
   require Logger
 
   alias DiscordiaSignaling.Events.RabbitMQ
-  alias DiscordiaSignaling.Voice.{LiveKitRoomService, VoiceSessionRegistry}
+  alias DiscordiaSignaling.Voice.{LiveKitRoomService, ScreenShare, VoiceSessionRegistry}
 
   @muted_key "servers.member_muted"
   @unmuted_key "servers.member_unmuted"
@@ -104,11 +104,11 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
 
   defp handle_event({:ok, user_id, can_publish}) do
     with room_name when is_binary(room_name) <- VoiceSessionRegistry.active_room(user_id) do
-      case room_service().set_publish_permission(room_name, user_id, can_publish) do
-        :ok -> :ack
-        {:error, :not_found} -> :ack
-        {:error, _reason} -> :retry
-      end
+      [
+        room_service().set_publish_permission(room_name, user_id, can_publish)
+        | stop_screen_share(room_name, user_id, can_publish)
+      ]
+      |> ack_unless_failed()
     else
       nil -> :ack
     end
@@ -127,6 +127,16 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
   end
 
   defp handle_event({:error, _reason}), do: :ack
+
+  defp stop_screen_share(_room_name, _user_id, true), do: []
+
+  defp stop_screen_share(room_name, user_id, false) do
+    [room_service().remove_participant(room_name, ScreenShare.identity(user_id))]
+  end
+
+  defp ack_unless_failed(results) do
+    if Enum.all?(results, &(&1 in [:ok, {:error, :not_found}])), do: :ack, else: :retry
+  end
 
   defp ack_if_all_ok(results) do
     if Enum.all?(results, &(&1 == :ok)), do: :ack, else: :retry

@@ -145,3 +145,96 @@ paths:
                   error:
                     type: string
                     example: voice_not_configured
+
+  /api/voice/screen-token:
+    post:
+      summary: Issue a LiveKit token to share the phone screen
+      description: >-
+        Used by the Android app, whose call runs in a WebView that cannot
+        capture the screen. The app joins the same room a second time with the
+        companion identity <user_id>:screen, which can only publish the screen
+        and never subscribes. The user must already be in the channel's room
+        and allowed to speak. The companion is not a participant: it is left
+        out of the voice presence, and it is removed when its owner leaves,
+        switches channel, is removed from the room or is muted.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - channel_id
+              properties:
+                channel_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Token issued successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - identity
+                  - room_name
+                  - token
+                  - url
+                properties:
+                  identity:
+                    type: string
+                    example: user-42:screen
+                  room_name:
+                    type: string
+                    example: voice:550e8400-e29b-41d4-a716-446655440000
+                  token:
+                    type: string
+                    description: Signed LiveKit JWT that can only publish screen_share and screen_share_audio
+                  url:
+                    type: string
+                    example: ws://localhost:7880
+        "400":
+          description: Missing or invalid channel_id
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum: [channel_id_required, invalid_channel_id]
+        "401":
+          description: Request is not authenticated
+        "403":
+          description: User cannot access the channel, or a moderator muted them
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum: [voice_forbidden, voice_screen_share_forbidden]
+        "409":
+          description: User is not in that channel's voice room
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: voice_not_in_channel
+        "503":
+          description: LiveKit service is not configured or available
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum: [voice_not_configured, voice_unavailable]

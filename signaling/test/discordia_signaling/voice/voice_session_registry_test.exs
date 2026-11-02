@@ -48,6 +48,38 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
     assert VoiceSessionRegistry.active_room("registry-user-1") == "voice:room-2"
   end
 
+  test "removes the screen share companion when the owner leaves" do
+    assert {:ok, nil} = VoiceSessionRegistry.switch("screen-owner", "voice:room-1")
+
+    assert :ok = VoiceSessionRegistry.leave("screen-owner", "voice:room-1")
+    assert_received {:removed_participant, "voice:room-1", "screen-owner"}
+    assert_received {:removed_participant, "voice:room-1", "screen-owner:screen"}
+  end
+
+  test "removes the screen share companion from the previous room on switch" do
+    assert {:ok, nil} = VoiceSessionRegistry.switch("screen-switcher", "voice:room-1")
+
+    assert {:ok, "voice:room-1"} =
+             VoiceSessionRegistry.switch("screen-switcher", "voice:room-2")
+
+    assert_received {:removed_participant, "voice:room-1", "screen-switcher:screen"}
+
+    VoiceSessionRegistry.leave("screen-switcher", "voice:room-2")
+  end
+
+  test "keeps the session when LiveKit cannot remove it" do
+    assert {:ok, nil} = VoiceSessionRegistry.switch("screen-retry", "voice:room-1")
+    Application.put_env(:discordia_signaling, :test_room_service_result, {:error, :unavailable})
+
+    assert {:error, :unavailable} =
+             VoiceSessionRegistry.leave("screen-retry", "voice:room-1")
+
+    assert VoiceSessionRegistry.active_room("screen-retry") == "voice:room-1"
+
+    Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
+    assert :ok = VoiceSessionRegistry.leave("screen-retry", "voice:room-1")
+  end
+
   test "publishes a snapshot-compatible event when a participant joins and leaves" do
     assert {:ok, nil} =
              VoiceSessionRegistry.switch(
