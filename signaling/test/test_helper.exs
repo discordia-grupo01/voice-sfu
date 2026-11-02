@@ -8,3 +8,9 @@ Application.put_env(
 )
 
 Application.put_env(:discordia_signaling, :reconcile_grace_ms, 0)
+
+:ok =
+  Supervisor.terminate_child(
+    DiscordiaSignaling.Supervisor,
+    DiscordiaSignaling.Voice.VoicePresenceReconciler
+  )
