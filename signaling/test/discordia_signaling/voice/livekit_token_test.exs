@@ -54,6 +54,32 @@ defmodule DiscordiaSignaling.Voice.LiveKitTokenTest do
     assert {:error, :invalid_input} = LiveKitToken.issue("user-1", "Fabri", "room-1", nil)
   end
 
+  test "issues a screen share token that can only publish the screen" do
+    assert {:ok, token} = LiveKitToken.issue_screen_share("user-1", "Fabri", "room-1")
+
+    assert {true, jwt, _jws} =
+             JOSE.JWT.verify_strict(JOSE.JWK.from_oct("test-secret"), ["HS256"], token)
+
+    assert jwt.fields["sub"] == "user-1:screen"
+    assert jwt.fields["name"] == "Fabri"
+
+    assert jwt.fields["video"] == %{
+             "roomJoin" => true,
+             "room" => "room-1",
+             "canPublish" => true,
+             "canPublishSources" => ["screen_share", "screen_share_audio"],
+             "canSubscribe" => false,
+             "canPublishData" => false
+           }
+  end
+
+  test "rejects a screen share token with blank input" do
+    assert {:error, :invalid_input} = LiveKitToken.issue_screen_share("", "Fabri", "room-1")
+    assert {:error, :invalid_input} = LiveKitToken.issue_screen_share("user-1", "", "room-1")
+    assert {:error, :invalid_input} = LiveKitToken.issue_screen_share("user-1", "Fabri", "")
+    assert {:error, :invalid_input} = LiveKitToken.issue_screen_share(nil, "Fabri", "room-1")
+  end
+
   test "reports missing LiveKit configuration" do
     TestHelpers.put_livekit_config(api_key: "", api_secret: "")
 
