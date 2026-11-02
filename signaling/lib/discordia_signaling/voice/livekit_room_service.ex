@@ -1,6 +1,8 @@
 defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
   @moduledoc "Applies participant and room controls to LiveKit rooms."
 
+  alias DiscordiaSignaling.Voice.ScreenShare
+
   @receive_timeout 4_000
 
   @spec active_participants() :: {:ok, [map()]} | {:error, atom()}
@@ -185,7 +187,9 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
   defp positive_integer(_value), do: nil
 
   defp normalize_participants(room_name, room_started_at, participants) do
-    Enum.flat_map(participants, fn
+    participants
+    |> Enum.reject(&screen_share_companion?/1)
+    |> Enum.flat_map(fn
       %{"identity" => identity, "name" => name} when is_binary(identity) and identity != "" ->
         [
           %{
@@ -202,6 +206,9 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
         []
     end)
   end
+
+  defp screen_share_companion?(%{"identity" => identity}), do: ScreenShare.companion?(identity)
+  defp screen_share_companion?(_participant), do: false
 
   defp api_url(url) do
     url
