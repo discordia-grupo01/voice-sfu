@@ -36,6 +36,19 @@ defmodule DiscordiaSignaling.Events.MutingConsumerTest do
     assert VoiceSessionRegistry.active_room("mute-user-1") == "voice:mute-room"
   end
 
+  test "stops the screen share of a muted member" do
+    payload =
+      Jason.encode!(%{
+        "event_id" => "event-7",
+        "server_id" => "server-1",
+        "user_id" => "mute-user-1",
+        "until_at" => "2026-10-07T23:00:00Z"
+      })
+
+    assert :ack = MutingConsumer.process_payload("servers.member_muted", payload)
+    assert_received {:removed_participant, "voice:mute-room", "mute-user-1:screen"}
+  end
+
   test "restores publishing for an unmuted member" do
     payload =
       Jason.encode!(%{
@@ -46,6 +59,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumerTest do
 
     assert :ack = MutingConsumer.process_payload("servers.member_unmuted", payload)
     assert_receive {:publish_permission, "voice:mute-room", "mute-user-1", true}
+    refute_received {:removed_participant, _, "mute-user-1:screen"}
   end
 
   test "acks malformed and unsupported events" do

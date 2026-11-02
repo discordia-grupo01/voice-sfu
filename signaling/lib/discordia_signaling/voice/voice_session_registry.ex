@@ -5,6 +5,8 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
 
   use GenServer
 
+  alias DiscordiaSignaling.Voice.ScreenShare
+
   @pubsub DiscordiaSignaling.PubSub
   @table :voice_sessions
   @starts_table :voice_room_starts
@@ -40,12 +42,9 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   def leave(identity, room_name) when is_binary(identity) and is_binary(room_name) do
     case lookup(identity) do
       %{room_name: ^room_name} ->
-        case room_service().remove_participant(room_name, identity) do
-          result when result in [:ok, {:error, :not_found}] ->
-            GenServer.call(__MODULE__, {:leave, identity, room_name})
-
-          {:error, reason} ->
-            {:error, reason}
+        case remove_with_screen_share(room_name, identity) do
+          :ok -> GenServer.call(__MODULE__, {:leave, identity, room_name})
+          {:error, reason} -> {:error, reason}
         end
 
       _ ->
@@ -375,7 +374,17 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   defp disconnect_previous(room_name, room_name, _identity), do: :ok
 
   defp disconnect_previous(previous_room, _room_name, identity) do
-    case room_service().remove_participant(previous_room, identity) do
+    remove_with_screen_share(previous_room, identity)
+  end
+
+  defp remove_with_screen_share(room_name, identity) do
+    with :ok <- remove_from_livekit(room_name, identity) do
+      remove_from_livekit(room_name, ScreenShare.identity(identity))
+    end
+  end
+
+  defp remove_from_livekit(room_name, identity) do
+    case room_service().remove_participant(room_name, identity) do
       {:error, :not_found} -> :ok
       result -> result
     end
