@@ -81,6 +81,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
       accepted = %{call | status: :active}
       :ets.insert(@table, {call_id, accepted})
       notify(call.caller_id, "private_call_accepted", call_payload(accepted, caller_token))
+      notify(call.recipient_id, "private_call_answered", call_payload(accepted))
       {:reply, {:ok, call_payload(accepted, token)}, state}
     else
       error -> {:reply, error, state}
@@ -95,7 +96,8 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
       :ets.delete(@table, call_id)
       event = if action == :reject, do: "private_call_rejected", else: "private_call_ended"
       status = if action == :reject, do: :rejected, else: :ended
-      notify(other_participant(call, user_id), event, call_payload(%{call | status: status}))
+      reason = end_reason(action, call, user_id)
+      notify_participants(call, event, end_payload(%{call | status: status}, reason, user_id))
       publish_event(call, if(action == :reject, do: "rejected", else: "ended"))
       {:reply, :ok, state}
     else
@@ -112,7 +114,8 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
     case fetch(call_id) do
       {:ok, %{status: :ringing} = call} ->
         :ets.delete(@table, call_id)
-        notify(call.caller_id, "private_call_missed", call_payload(%{call | status: :ended}))
+        payload = end_payload(%{call | status: :ended}, "missed", nil)
+        notify_participants(call, "private_call_missed", payload)
         publish_event(call, "missed")
 
       _ ->
@@ -179,8 +182,14 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   defp action_status(:reject), do: :ringing
   defp action_status(:finish), do: :active
 
-  defp other_participant(call, user_id) do
-    if call.caller_id == user_id, do: call.recipient_id, else: call.caller_id
+  defp end_reason(:reject, %{caller_id: user_id}, user_id), do: "cancelled"
+  defp end_reason(:reject, _call, _user_id), do: "declined"
+  defp end_reason(:finish, _call, _user_id), do: "hangup"
+
+  defp end_payload(call, reason, ended_by) do
+    call
+    |> call_payload()
+    |> Map.merge(%{"reason" => reason, "ended_by" => ended_by})
   end
 
   defp call_payload(call, token \\ nil) do
@@ -201,6 +210,13 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   defp notify(user_id, event, payload),
     do:
       Phoenix.PubSub.broadcast(@pubsub, "voice_user:" <> user_id, {:private_call, event, payload})
+
+  # Both users get the event so every open session of each one leaves the call,
+  # including the other tabs of the user who triggered it.
+  defp notify_participants(call, event, payload) do
+    notify(call.caller_id, event, payload)
+    notify(call.recipient_id, event, payload)
+  end
 
   defp publish_event(call, status) do
     DiscordiaSignaling.Voice.VoicePresencePublisher.publish(%{
