@@ -66,6 +66,20 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
     assert caller_payload["url"] == "ws://test-livekit:7880"
   end
 
+  test "acceptance tells the recipient's other sessions without credentials" do
+    assert {:ok, call} =
+             PrivateCall.start("caller-7", "recipient-7", "conversation-7", "Bearer token")
+
+    Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_user:recipient-7")
+    assert {:ok, _accepted} = PrivateCall.accept(call.id, "recipient-7", "Bearer token")
+
+    assert_receive {:private_call, "private_call_answered", payload}
+    assert payload["call_id"] == call.id
+    assert payload["status"] == "active"
+    refute Map.has_key?(payload, "token")
+    refute Map.has_key?(payload, "url")
+  end
+
   test "ringing notifications do not carry LiveKit credentials" do
     Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_user:recipient-url")
 
@@ -77,20 +91,36 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
     refute Map.has_key?(payload, "url")
   end
 
-  test "rejecting notifies the caller and removes the pending call" do
-    Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_user:caller-4")
-
+  test "rejecting notifies both participants and removes the pending call" do
     assert {:ok, call} =
              PrivateCall.start("caller-4", "recipient-4", "conversation-4", "Bearer token")
 
+    subscribe_users(["caller-4", "recipient-4"])
     assert :ok = PrivateCall.reject(call.id, "recipient-4")
-    assert_receive {:private_call, "private_call_rejected", %{"status" => "rejected"}}
+    assert_received_twice("private_call_rejected", %{
+      "status" => "rejected",
+      "reason" => "declined",
+      "ended_by" => "recipient-4"
+    })
+
     assert {:error, :call_not_found} = PrivateCall.get(call.id)
   end
 
-  test "expiring an unanswered call notifies the caller" do
-    Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_user:caller-timeout")
+  test "the caller cancelling a ringing call is reported as cancelled" do
+    assert {:ok, call} =
+             PrivateCall.start("caller-6", "recipient-6", "conversation-6", "Bearer token")
 
+    subscribe_users(["caller-6", "recipient-6"])
+    assert :ok = PrivateCall.reject(call.id, "caller-6")
+
+    assert_received_twice("private_call_rejected", %{
+      "status" => "rejected",
+      "reason" => "cancelled",
+      "ended_by" => "caller-6"
+    })
+  end
+
+  test "expiring an unanswered call notifies both participants" do
     assert {:ok, call} =
              PrivateCall.start(
                "caller-timeout",
@@ -99,13 +129,19 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
                "******"
              )
 
+    subscribe_users(["caller-timeout", "recipient-timeout"])
     send(Process.whereis(PrivateCall), {:expire, call.id})
 
-    assert_receive {:private_call, "private_call_missed", %{"status" => "ended"}}
+    assert_received_twice("private_call_missed", %{
+      "status" => "ended",
+      "reason" => "missed",
+      "ended_by" => nil
+    })
+
     assert {:error, :call_not_found} = PrivateCall.get(call.id)
   end
 
-  test "finishing an active call notifies the other participant" do
+  test "finishing an active call notifies both participants" do
     Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_user:caller-5")
 
     assert {:ok, call} =
@@ -113,8 +149,27 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
 
     assert {:ok, _accepted} = PrivateCall.accept(call.id, "recipient-5", "Bearer token")
     assert_receive {:private_call, "private_call_accepted", _payload}
+
+    subscribe_users(["recipient-5"])
     assert :ok = PrivateCall.finish(call.id, "recipient-5")
-    assert_receive {:private_call, "private_call_ended", %{"status" => "ended"}}
+    assert_received_twice("private_call_ended", %{
+      "status" => "ended",
+      "reason" => "hangup",
+      "ended_by" => "recipient-5"
+    })
+  end
+
+  defp subscribe_users(user_ids) do
+    Enum.each(user_ids, &Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_user:" <> &1))
+  end
+
+  defp assert_received_twice(event, expected) do
+    for _ <- 1..2 do
+      assert_receive {:private_call, ^event, payload}
+      assert Map.take(payload, Map.keys(expected)) == expected
+    end
+
+    refute_receive {:private_call, ^event, _payload}, 50
   end
 
   defp restore(key, nil), do: Application.delete_env(:discordia_signaling, key)
