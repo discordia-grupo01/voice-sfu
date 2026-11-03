@@ -18,7 +18,7 @@ defmodule DiscordiaSignalingWeb.VoiceScreenTokenController do
           identity: ScreenShare.identity(user_id),
           room_name: details.room_name,
           token: token,
-          url: livekit_url()
+          url: LiveKitToken.url()
         })
       else
         {:error, :not_in_room} ->
@@ -59,10 +59,4 @@ defmodule DiscordiaSignalingWeb.VoiceScreenTokenController do
 
   defp ensure_can_publish(true), do: :ok
   defp ensure_can_publish(_can_publish), do: {:error, :cannot_publish}
-
-  defp livekit_url do
-    :discordia_signaling
-    |> Application.get_env(:livekit, [])
-    |> Keyword.get(:url, "ws://localhost:7880")
-  end
 end

@@ -80,6 +80,16 @@ defmodule DiscordiaSignaling.Voice.LiveKitTokenTest do
     assert {:error, :invalid_input} = LiveKitToken.issue_screen_share(nil, "Fabri", "room-1")
   end
 
+  test "exposes the configured LiveKit url" do
+    assert LiveKitToken.url() == "ws://test-livekit:7880"
+  end
+
+  test "falls back to the local LiveKit url when none is configured" do
+    TestHelpers.put_livekit_config(api_key: "test-key", api_secret: "test-secret")
+
+    assert LiveKitToken.url() == "ws://localhost:7880"
+  end
+
   test "reports missing LiveKit configuration" do
     TestHelpers.put_livekit_config(api_key: "", api_secret: "")
 

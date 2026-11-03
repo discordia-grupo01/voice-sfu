@@ -3,13 +3,14 @@ defmodule DiscordiaSignaling.Voice.VoicePresenceReconciler do
   Rebuilds the local signaling snapshot from LiveKit after a node starts.
 
   RabbitMQ distributes future changes; LiveKit is the source of truth for
-  participants that are currently connected.
+  participants that are currently connected. The same snapshot ends private
+  calls whose participants left without hanging up.
   """
 
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Voice.{LiveKitRoomService, VoiceSessionRegistry}
+  alias DiscordiaSignaling.Voice.{LiveKitRoomService, PrivateCall, VoiceSessionRegistry}
 
   @reconcile_interval 30_000
 
@@ -28,6 +29,7 @@ defmodule DiscordiaSignaling.Voice.VoicePresenceReconciler do
     case room_service().active_participants() do
       {:ok, participants} ->
         VoiceSessionRegistry.reconcile_snapshot(participants)
+        PrivateCall.reconcile(participants)
         Process.send_after(self(), :reconcile, @reconcile_interval)
         {:noreply, state}
 
