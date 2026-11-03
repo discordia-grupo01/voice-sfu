@@ -128,6 +128,22 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
     end
   end
 
+  @spec authorize_private_contact(String.t(), String.t(), String.t(), String.t() | nil) ::
+          {:ok, map()} | {:error, atom()}
+  def authorize_private_contact(user_id, recipient_id, conversation_id, authorization_header)
+      when is_binary(user_id) and is_binary(recipient_id) and is_binary(conversation_id) do
+    if user_id == recipient_id do
+      {:error, :forbidden}
+    else
+      case private_contact_url(recipient_id, conversation_id) do
+        {:ok, url} -> request_private_contact(url, authorization_header)
+        :error -> {:error, :not_configured}
+      end
+    end
+  end
+
+  def authorize_private_contact(_, _, _, _), do: {:error, :forbidden}
+
   defp authorize_details(user_id, channel_id, authorization_header) do
     if Regex.match?(@uuid_pattern, channel_id) do
       case authz_mode() do
@@ -142,6 +158,47 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
       end
     else
       {:error, :forbidden}
+    end
+  end
+
+  defp private_contact_url(recipient_id, conversation_id) do
+    base_url = Application.get_env(:discordia_signaling, :messaging, [])[:url]
+
+    if is_binary(base_url) and base_url != "" do
+      {:ok,
+       String.to_charlist(
+         base_url <>
+           "/v1/voice-access/" <>
+           URI.encode(recipient_id) <>
+           "?conversation_id=" <>
+           URI.encode(conversation_id)
+       )}
+    else
+      :error
+    end
+  end
+
+  defp request_private_contact(_url, authorization_header)
+       when not is_binary(authorization_header) or authorization_header == "",
+       do: {:error, :forbidden}
+
+  defp request_private_contact(url, authorization_header) do
+    headers = [{~c"authorization", String.to_charlist(authorization_header)}]
+
+    case :httpc.request(:get, {url, headers}, [connect_timeout: 2_000, timeout: 4_000],
+           body_format: :binary
+         ) do
+      {:ok, {{_, 200, _}, _headers, body}} ->
+        case Jason.decode(body) do
+          {:ok, %{"allowed" => true}} -> {:ok, %{allowed: true}}
+          _ -> {:error, :forbidden}
+        end
+
+      {:ok, {{_, status, _}, _headers, _body}} when status in [401, 403, 404] ->
+        {:error, :forbidden}
+
+      _ ->
+        {:error, :not_configured}
     end
   end
 end

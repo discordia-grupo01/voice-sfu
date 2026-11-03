@@ -11,6 +11,15 @@ mix phx.server
 
 The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoenix channels use `/socket` and the `voice:*` and `voice_server:*` topics.
 
+Private one-to-one calls use `POST /api/voice/calls` with
+`recipient_id` and `conversation_id`. Signaling asks Messaging to authorize
+that direct conversation, including both-direction block checks, before
+creating a `private-call:<call_id>` LiveKit room. The recipient can accept,
+reject, or the participants can finish the call through
+`/api/voice/calls/:id/{accept,reject,finish}`. Real-time transitions are
+delivered on the authenticated `voice_user:<user_id>` socket topic; the
+`voice.private_call` event is also published for Notifications push delivery.
+
 ## Current boundary
 
 `DiscordiaSignaling.Voice.SfuBridge` is the integration seam for the internal transport to the Go SFU. It intentionally returns `:not_configured` until the protocol, authentication, framing, retries, and backpressure policy are defined. Do not move WebRTC or RTP logic into this application.
@@ -20,6 +29,7 @@ The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoe
 - `PORT`: HTTP port, defaults to `4000`.
 - `SECRET_KEY_BASE`: required when `MIX_ENV=prod`.
 - `SERVERS_URL`: base URL of the servers service used for voice authorization.
+- `MESSAGING_URL`: base URL of Messaging used to validate direct-call access and blocks.
 - `RABBITMQ_URL`: broker URL for servers events (mute, channel access revoked, channel and server deleted); when empty, the consumer is disabled.
 - `EVENTS_EXCHANGE`: RabbitMQ topic exchange, defaults to `discordia.events`.
 - `VOICE_EVENTS_QUEUE`: durable queue for this signaling instance, defaults to `voice.signaling`.

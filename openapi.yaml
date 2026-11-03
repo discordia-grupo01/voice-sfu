@@ -146,6 +146,60 @@ paths:
                     type: string
                     example: voice_not_configured
 
+  /api/voice/calls:
+    post:
+      summary: Start a private one-to-one voice call
+      description: Validates the direct conversation and both-direction block state before creating a private LiveKit room.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recipient_id, conversation_id]
+              properties:
+                recipient_id: {type: string}
+                conversation_id: {type: string, format: uuid}
+      responses:
+        "201": {description: Call is ringing}
+        "400": {description: Invalid payload}
+        "403": {description: Conversation is not callable or a user is blocked}
+        "409": {description: Another call already exists}
+
+  /api/voice/calls/{id}/accept:
+    post:
+      summary: Accept a private voice call
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200": {description: LiveKit token for the accepted call}
+        "403": {description: User is not the recipient}
+        "404": {description: Call not found}
+
+  /api/voice/calls/{id}/reject:
+    post:
+      summary: Reject an incoming private voice call
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "204": {description: Call rejected}
+
+  /api/voice/calls/{id}/finish:
+    post:
+      summary: Finish an active private voice call
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "204": {description: Call finished for both participants}
+
   /api/voice/screen-token:
     post:
       summary: Issue a LiveKit token to share the phone screen
