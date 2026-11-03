@@ -1,6 +1,8 @@
 defmodule DiscordiaSignaling.Voice.VoicePresenceReconcilerTest do
   use ExUnit.Case, async: false
 
+  alias DiscordiaSignaling.TestHelpers
+  alias DiscordiaSignaling.Voice.PrivateCall
   alias DiscordiaSignaling.Voice.VoicePresenceReconciler
   alias DiscordiaSignaling.Voice.VoiceSessionRegistry
 
@@ -89,4 +91,34 @@ defmodule DiscordiaSignaling.Voice.VoicePresenceReconcilerTest do
 
     assert VoiceSessionRegistry.participants("server-1") == []
   end
+
+  test "ends private calls whose participants are gone from LiveKit" do
+    TestHelpers.put_livekit_config()
+    previous_authorizer = Application.get_env(:discordia_signaling, :private_call_authorizer)
+
+    Application.put_env(
+      :discordia_signaling,
+      :private_call_authorizer,
+      DiscordiaSignaling.TestPrivateCallAuthorizer
+    )
+
+    Application.put_env(:discordia_signaling, :private_call_abandoned_after_ms, 0)
+
+    on_exit(fn ->
+      restore(:private_call_authorizer, previous_authorizer)
+      Application.delete_env(:discordia_signaling, :private_call_abandoned_after_ms)
+    end)
+
+    assert {:ok, call} =
+             PrivateCall.start("reconcile-caller", "reconcile-recipient", "conv-r", "Bearer t")
+
+    assert {:ok, _accepted} = PrivateCall.accept(call.id, "reconcile-recipient", "Bearer t")
+
+    assert {:noreply, %{}} = VoicePresenceReconciler.handle_info(:reconcile, %{})
+    assert {:noreply, %{}} = VoicePresenceReconciler.handle_info(:reconcile, %{})
+    assert {:error, :call_not_found} = PrivateCall.get(call.id)
+  end
+
+  defp restore(key, nil), do: Application.delete_env(:discordia_signaling, key)
+  defp restore(key, value), do: Application.put_env(:discordia_signaling, key, value)
 end
