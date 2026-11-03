@@ -159,6 +159,93 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
     })
   end
 
+  describe "reconcile/1" do
+    setup do
+      previous = Application.get_env(:discordia_signaling, :private_call_abandoned_after_ms)
+      Application.put_env(:discordia_signaling, :private_call_abandoned_after_ms, 0)
+      on_exit(fn -> restore(:private_call_abandoned_after_ms, previous) end)
+      :ok
+    end
+
+    test "ends an active call that keeps missing a participant and frees the pair" do
+      call = active_call("caller-stale", "recipient-stale")
+      subscribe_users(["caller-stale", "recipient-stale"])
+      only_caller = [%{room_name: call.room_name, identity: "caller-stale"}]
+
+      assert :ok = PrivateCall.reconcile(only_caller)
+      refute_receive {:private_call, "private_call_ended", _payload}, 50
+
+      assert :ok = PrivateCall.reconcile(only_caller)
+
+      assert_received_twice("private_call_ended", %{
+        "status" => "ended",
+        "reason" => "disconnected",
+        "ended_by" => nil
+      })
+
+      assert {:error, :call_not_found} = PrivateCall.get(call.id)
+
+      assert {:ok, _call} =
+               PrivateCall.start(
+                 "caller-stale",
+                 "recipient-stale",
+                 "conversation-stale",
+                 "Bearer token"
+               )
+    end
+
+    test "keeps an active call while both participants are in the room" do
+      call = active_call("caller-live", "recipient-live")
+
+      both = [
+        %{room_name: call.room_name, identity: "caller-live"},
+        %{room_name: call.room_name, identity: "recipient-live"}
+      ]
+
+      assert :ok = PrivateCall.reconcile(both)
+      assert :ok = PrivateCall.reconcile(both)
+      assert {:ok, %{status: :active, incomplete_since: nil}} = PrivateCall.get(call.id)
+    end
+
+    test "a participant that comes back resets the grace period" do
+      Application.put_env(:discordia_signaling, :private_call_abandoned_after_ms, 60_000)
+      call = active_call("caller-back", "recipient-back")
+      caller = %{room_name: call.room_name, identity: "caller-back"}
+      recipient = %{room_name: call.room_name, identity: "recipient-back"}
+
+      assert :ok = PrivateCall.reconcile([caller])
+      assert {:ok, %{incomplete_since: since}} = PrivateCall.get(call.id)
+      assert is_integer(since)
+
+      assert :ok = PrivateCall.reconcile([caller, recipient])
+      assert {:ok, %{status: :active, incomplete_since: nil}} = PrivateCall.get(call.id)
+    end
+
+    test "leaves ringing calls to the answer timeout" do
+      assert {:ok, call} =
+               PrivateCall.start(
+                 "caller-ring",
+                 "recipient-ring",
+                 "conversation-ring",
+                 "Bearer token"
+               )
+
+      assert :ok = PrivateCall.reconcile([])
+      assert :ok = PrivateCall.reconcile([])
+      assert {:ok, %{status: :ringing}} = PrivateCall.get(call.id)
+    end
+  end
+
+  defp active_call(caller_id, recipient_id) do
+    conversation_id = "conversation-" <> caller_id
+
+    assert {:ok, call} =
+             PrivateCall.start(caller_id, recipient_id, conversation_id, "Bearer token")
+
+    assert {:ok, _accepted} = PrivateCall.accept(call.id, recipient_id, "Bearer token")
+    call
+  end
+
   defp subscribe_users(user_ids) do
     Enum.each(user_ids, &Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_user:" <> &1))
   end
