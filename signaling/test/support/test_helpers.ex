@@ -68,3 +68,20 @@ defmodule DiscordiaSignaling.TestVoicePresencePublisher do
     :ok
   end
 end
+
+defmodule DiscordiaSignaling.TestPrivateCallAuthorizer do
+  def authorize_private_contact(user_id, recipient_id, conversation_id, _authorization_header) do
+    case Application.get_env(:discordia_signaling, :test_private_call_authorization, :ok) do
+      :ok ->
+        {:ok,
+         %{
+           user_id: user_id,
+           recipient_id: recipient_id,
+           conversation_id: conversation_id
+         }}
+
+      result ->
+        result
+    end
+  end
+end
