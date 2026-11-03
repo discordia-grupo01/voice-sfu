@@ -26,7 +26,7 @@ defmodule DiscordiaSignalingWeb.VoiceTokenController do
           name: details.name,
           room_name: details.room_name,
           token: token,
-          url: livekit_url()
+          url: LiveKitToken.url()
         })
       else
         {:error, :not_configured} ->
@@ -51,11 +51,5 @@ defmodule DiscordiaSignalingWeb.VoiceTokenController do
     conn
     |> Plug.Conn.put_status(400)
     |> json(%{error: "channel_id_required"})
-  end
-
-  defp livekit_url do
-    :discordia_signaling
-    |> Application.get_env(:livekit, [])
-    |> Keyword.get(:url, "ws://localhost:7880")
   end
 end
