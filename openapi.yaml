@@ -205,23 +205,36 @@ paths:
 
   /api/voice/calls/{id}/reject:
     post:
-      summary: Reject an incoming private voice call
+      summary: Decline or cancel a ringing private voice call
+      description: >-
+        The recipient declines the call, or the caller cancels it before it is
+        answered. Both participants receive private_call_rejected with reason
+        declined or cancelled and ended_by.
       security:
         - bearerAuth: []
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       responses:
         "204": {description: Call rejected}
+        "403": {description: User is not a participant}
+        "404": {description: Call not found}
+        "409": {description: Call is no longer ringing}
 
   /api/voice/calls/{id}/finish:
     post:
       summary: Finish an active private voice call
+      description: >-
+        Both participants receive private_call_ended with reason hangup and
+        ended_by.
       security:
         - bearerAuth: []
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
       responses:
         "204": {description: Call finished for both participants}
+        "403": {description: User is not a participant}
+        "404": {description: Call not found}
+        "409": {description: Call is not active}
 
   /api/voice/screen-token:
     post:
