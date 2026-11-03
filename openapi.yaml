@@ -175,10 +175,33 @@ paths:
         - bearerAuth: []
       parameters:
         - {name: id, in: path, required: true, schema: {type: string}}
+      description: >-
+        The caller receives its own token and url through the
+        private_call_accepted event on the voice_user:<user_id> socket topic.
       responses:
-        "200": {description: LiveKit token for the accepted call}
+        "200":
+          description: LiveKit credentials for the accepted call
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [call_id, conversation_id, caller_id, recipient_id, room_name, status, token, url]
+                properties:
+                  call_id: {type: string}
+                  conversation_id: {type: string, format: uuid}
+                  caller_id: {type: string}
+                  recipient_id: {type: string}
+                  room_name: {type: string, example: "private-call:abc123"}
+                  status: {type: string, example: active}
+                  token:
+                    type: string
+                    description: Signed LiveKit JWT valid for the call room
+                  url:
+                    type: string
+                    example: ws://localhost:7880
         "403": {description: User is not the recipient}
         "404": {description: Call not found}
+        "409": {description: Call is no longer ringing}
 
   /api/voice/calls/{id}/reject:
     post:

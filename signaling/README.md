@@ -19,6 +19,8 @@ reject, or the participants can finish the call through
 `/api/voice/calls/:id/{accept,reject,finish}`. Real-time transitions are
 delivered on the authenticated `voice_user:<user_id>` socket topic; the
 `voice.private_call` event is also published for Notifications push delivery.
+The accept response (recipient) and the `private_call_accepted` event (caller)
+include the LiveKit `token` and `url` each participant needs to join the room.
 
 ## Current boundary
 
