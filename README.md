@@ -39,6 +39,14 @@ Phoenix escucha en `http://localhost:4000`, expone `GET /livez` y `GET /readyz`.
 
 LiveKit escucha en `ws://localhost:7880` y publica media UDP en el rango `51000-51100`. El cliente debe conectarse usando un SDK de LiveKit con el token emitido por Phoenix.
 
+Las llamadas privadas 1 a 1 usan `POST /api/voice/calls` con el `recipient_id` y
+el `conversation_id` de la conversación directa. Phoenix valida esa conversación
+contra Messaging, incluyendo bloqueos en ambos sentidos, y crea una sala
+`private-call:<call_id>`. La aceptación, el rechazo y la finalización se
+gestionan en `/api/voice/calls/:id/{accept,reject,finish}`. Las transiciones
+llegan al topic autenticado `voice_user:<user_id>` y se publica
+`voice.private_call` para Notifications.
+
 ### Docker Compose
 
 ```bash

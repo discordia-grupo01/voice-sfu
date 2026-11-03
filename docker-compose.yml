@@ -12,6 +12,7 @@ services:
       LIVEKIT_API_KEY: devkey
       LIVEKIT_API_SECRET: devsecret
       VOICE_AUTHZ_MODE: servers_api
+      MESSAGING_URL: http://messaging:4000
       SERVERS_URL: http://host.docker.internal:8080
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       EVENTS_EXCHANGE: discordia.events
