@@ -9,10 +9,11 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Voice.{LiveKitToken, VoiceAccess}
+  alias DiscordiaSignaling.Voice.{LiveKitRoomService, LiveKitToken, VoiceAccess}
 
   @table :private_voice_calls
   @timeout_ms 30_000
+  @abandoned_after_ms 30_000
   @pubsub DiscordiaSignaling.PubSub
 
   def start_link(opts \\ []),
@@ -31,6 +32,8 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   def reject(call_id, user_id), do: GenServer.call(__MODULE__, {:reject, call_id, user_id})
   def finish(call_id, user_id), do: GenServer.call(__MODULE__, {:finish, call_id, user_id})
   def get(call_id), do: GenServer.call(__MODULE__, {:get, call_id})
+
+  def reconcile(participants), do: GenServer.call(__MODULE__, {:reconcile, participants})
 
   @impl true
   def init(state) do
@@ -52,7 +55,8 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
         conversation_id: conversation,
         room_name: "private-call:" <> call_id,
         status: :ringing,
-        inserted_at: System.system_time(:millisecond)
+        inserted_at: System.system_time(:millisecond),
+        incomplete_since: nil
       }
 
       :ets.insert(@table, {call_id, call})
@@ -109,6 +113,17 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
     {:reply, fetch(call_id), state}
   end
 
+  def handle_call({:reconcile, participants}, _from, state) do
+    identities_by_room = Enum.group_by(participants, & &1.room_name, & &1.identity)
+    now = System.system_time(:millisecond)
+
+    for {_call_id, %{status: :active} = call} <- :ets.tab2list(@table) do
+      reconcile_call(call, Map.get(identities_by_room, call.room_name, []), now)
+    end
+
+    {:reply, :ok, state}
+  end
+
   @impl true
   def handle_info({:expire, call_id}, state) do
     case fetch(call_id) do
@@ -124,6 +139,42 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
 
     {:noreply, state}
   end
+
+  defp reconcile_call(call, identities, now) do
+    cond do
+      call.caller_id in identities and call.recipient_id in identities ->
+        :ets.insert(@table, {call.id, %{call | incomplete_since: nil}})
+
+      call.incomplete_since == nil ->
+        :ets.insert(@table, {call.id, %{call | incomplete_since: now}})
+
+      now - call.incomplete_since >= abandoned_after_ms() ->
+        end_abandoned(call)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp end_abandoned(call) do
+    :ets.delete(@table, call.id)
+    ended = %{call | status: :ended}
+    notify_participants(call, "private_call_ended", end_payload(ended, "disconnected", nil))
+    publish_event(call, "ended")
+    # Disconnects whoever is still in the room
+    Task.start(fn -> room_service().delete_room(call.room_name) end)
+  end
+
+  defp abandoned_after_ms,
+    do:
+      Application.get_env(
+        :discordia_signaling,
+        :private_call_abandoned_after_ms,
+        @abandoned_after_ms
+      )
+
+  defp room_service,
+    do: Application.get_env(:discordia_signaling, :livekit_room_service, LiveKitRoomService)
 
   defp token_for(call, user_id) do
     LiveKitToken.issue(user_id, user_id, call.room_name)
