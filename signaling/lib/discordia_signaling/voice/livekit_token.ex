@@ -5,6 +5,13 @@ defmodule DiscordiaSignaling.Voice.LiveKitToken do
 
   @screen_share_sources ["screen_share", "screen_share_audio"]
 
+  @spec url() :: String.t()
+  def url do
+    :discordia_signaling
+    |> Application.get_env(:livekit, [])
+    |> Keyword.get(:url, "ws://localhost:7880")
+  end
+
   @spec issue(String.t(), String.t(), String.t()) :: {:ok, String.t()} | {:error, atom()}
   def issue(identity, name, room_name)
       when is_binary(identity) and identity != "" and is_binary(name) and name != "" and

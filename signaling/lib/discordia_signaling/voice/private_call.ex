@@ -193,7 +193,9 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
       "status" => Atom.to_string(call.status)
     }
 
-    if token, do: Map.put(payload, "token", token), else: payload
+    if token,
+      do: Map.merge(payload, %{"token" => token, "url" => LiveKitToken.url()}),
+      else: payload
   end
 
   defp notify(user_id, event, payload),
