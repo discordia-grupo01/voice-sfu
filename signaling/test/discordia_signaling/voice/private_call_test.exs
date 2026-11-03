@@ -58,10 +58,23 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
     assert accepted["status"] == "active"
     assert accepted["room_name"] == call.room_name
     assert accepted["token"] != nil
+    assert accepted["url"] == "ws://test-livekit:7880"
 
     assert_receive {:private_call, "private_call_accepted", caller_payload}
     assert caller_payload["token"] != accepted["token"]
     assert caller_payload["room_name"] == call.room_name
+    assert caller_payload["url"] == "ws://test-livekit:7880"
+  end
+
+  test "ringing notifications do not carry LiveKit credentials" do
+    Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_user:recipient-url")
+
+    assert {:ok, _call} =
+             PrivateCall.start("caller-url", "recipient-url", "conversation-url", "Bearer token")
+
+    assert_receive {:private_call, "private_call_incoming", payload}
+    refute Map.has_key?(payload, "token")
+    refute Map.has_key?(payload, "url")
   end
 
   test "rejecting notifies the caller and removes the pending call" do
