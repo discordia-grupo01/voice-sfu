@@ -20,6 +20,14 @@ defmodule DiscordiaSignalingWeb.VoiceChannel do
     {:ok, assign(socket, server_id: server_id, presence_only: true)}
   end
 
+  def join("voice_user:" <> user_id, _params, %{assigns: %{current_user_id: user_id}} = socket)
+      when is_binary(user_id) and byte_size(user_id) > 0 do
+    Phoenix.PubSub.subscribe(@pubsub, "voice_user:#{user_id}")
+    {:ok, assign(socket, user_id: user_id, user_only: true)}
+  end
+
+  def join("voice_user:" <> _user_id, _params, _socket), do: {:error, %{reason: "forbidden"}}
+
   def join(_topic, _params, _socket), do: {:error, %{reason: "invalid_join"}}
 
   @impl true
@@ -48,6 +56,11 @@ defmodule DiscordiaSignalingWeb.VoiceChannel do
   @impl true
   def handle_info({:voice_presence, event}, socket) do
     push(socket, event["event_type"], event)
+    {:noreply, socket}
+  end
+
+  def handle_info({:private_call, event, payload}, socket) do
+    push(socket, event, payload)
     {:noreply, socket}
   end
 end

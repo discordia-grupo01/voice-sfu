@@ -5,6 +5,7 @@ defmodule DiscordiaSignalingWeb.UserSocket do
 
   channel("voice:*", DiscordiaSignalingWeb.VoiceChannel)
   channel("voice_server:*", DiscordiaSignalingWeb.VoiceChannel)
+  channel("voice_user:*", DiscordiaSignalingWeb.VoiceChannel)
 
   @impl true
   def connect(%{"ticket" => ticket}, socket, _connect_info) when is_binary(ticket) do
