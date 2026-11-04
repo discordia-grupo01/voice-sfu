@@ -28,6 +28,13 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
     end
   end
 
+  def screen_token(conn, %{"id" => call_id}) do
+    case PrivateCall.screen_share_token(call_id, conn.assigns.current_user_id) do
+      {:ok, payload} -> json(conn, payload)
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   def reject(conn, %{"id" => call_id}), do: action(conn, call_id, :reject)
   def finish(conn, %{"id" => call_id}), do: action(conn, call_id, :finish)
 

@@ -194,6 +194,57 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
     })
   end
 
+  describe "screen_share_token/2" do
+    test "gives a participant of an active call a screen-only companion token" do
+      call = active_call("caller-screen", "recipient-screen")
+
+      assert {:ok, response} = PrivateCall.screen_share_token(call.id, "caller-screen")
+      assert response["identity"] == "caller-screen:screen"
+      assert response["room_name"] == call.room_name
+      assert response["url"] == "ws://test-livekit:7880"
+
+      claims = JOSE.JWT.peek_payload(response["token"]).fields
+      assert claims["sub"] == "caller-screen:screen"
+      assert claims["video"]["room"] == call.room_name
+      assert claims["video"]["canPublishSources"] == ["screen_share", "screen_share_audio"]
+      assert claims["video"]["canSubscribe"] == false
+    end
+
+    test "works for the recipient too" do
+      call = active_call("caller-screen-2", "recipient-screen-2")
+
+      assert {:ok, %{"identity" => "recipient-screen-2:screen"}} =
+               PrivateCall.screen_share_token(call.id, "recipient-screen-2")
+    end
+
+    test "rejects someone who is not in the call" do
+      call = active_call("caller-screen-3", "recipient-screen-3")
+
+      assert {:error, :forbidden} = PrivateCall.screen_share_token(call.id, "intruder")
+    end
+
+    test "rejects a call that is still ringing" do
+      assert {:ok, call} =
+               PrivateCall.start(
+                 "caller-screen-4",
+                 "recipient-screen-4",
+                 "conversation-screen-4",
+                 "Bearer token"
+               )
+
+      assert {:error, :invalid_call_state} =
+               PrivateCall.screen_share_token(call.id, "caller-screen-4")
+    end
+
+    test "rejects a call that already ended" do
+      call = active_call("caller-screen-5", "recipient-screen-5")
+      assert :ok = PrivateCall.finish(call.id, "caller-screen-5")
+
+      assert {:error, :call_not_found} =
+               PrivateCall.screen_share_token(call.id, "caller-screen-5")
+    end
+  end
+
   describe "reconcile/1" do
     setup do
       previous = Application.get_env(:discordia_signaling, :private_call_abandoned_after_ms)

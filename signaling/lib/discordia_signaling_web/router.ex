@@ -37,6 +37,7 @@ defmodule DiscordiaSignalingWeb.Router do
     post("/voice/calls/:id/accept", PrivateCallController, :accept)
     post("/voice/calls/:id/reject", PrivateCallController, :reject)
     post("/voice/calls/:id/finish", PrivateCallController, :finish)
+    post("/voice/calls/:id/screen-token", PrivateCallController, :screen_token)
     post("/voice/screen-token", VoiceScreenTokenController, :create)
     delete("/voice/session", VoiceSessionController, :delete)
     get("/voice/participants", VoicePresenceController, :index)
