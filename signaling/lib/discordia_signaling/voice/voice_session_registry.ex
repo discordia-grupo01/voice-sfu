@@ -69,21 +69,16 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   end
 
   @doc """
-  Names of the voice rooms that belong to `server_id`: the rooms where someone
-  is connected as a member of that server, plus every room this node has ever
-  seen for it. Admin's `server_suspended` names no channel, so this is how the
-  rooms to close are found. A room that no longer exists in LiveKit is harmless
-  to include, because closing it answers `not_found`, which counts as success.
+  Names of the voice rooms that belong to `server_id`: every room this node has
+  seen for it. Each time someone is registered in a room its server is
+  remembered, so this includes every room where anyone is connected. Admin's
+  `server_suspended` names no channel, so this is how the rooms to close are
+  found. A room that no longer exists in LiveKit is harmless to include,
+  because closing it answers `not_found`, which counts as success.
   """
   @spec rooms_of_server(String.t()) :: [String.t()]
   def rooms_of_server(server_id) when is_binary(server_id) and server_id != "" do
-    occupied =
-      for {_identity, %{server_id: ^server_id, room_name: room}} <- :ets.tab2list(@table),
-          do: room
-
-    known = for {room, ^server_id} <- :ets.tab2list(@room_servers_table), do: room
-
-    Enum.uniq(occupied ++ known)
+    for {room, ^server_id} <- :ets.tab2list(@room_servers_table), do: room
   end
 
   def rooms_of_server(_server_id), do: []
