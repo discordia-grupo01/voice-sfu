@@ -32,6 +32,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   def reject(call_id, user_id), do: GenServer.call(__MODULE__, {:reject, call_id, user_id})
   def finish(call_id, user_id), do: GenServer.call(__MODULE__, {:finish, call_id, user_id})
   def get(call_id), do: GenServer.call(__MODULE__, {:get, call_id})
+  def replicate_event(event), do: GenServer.call(__MODULE__, {:replicate_event, event})
 
   def reconcile(participants), do: GenServer.call(__MODULE__, {:reconcile, participants})
 
@@ -86,6 +87,9 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
       :ets.insert(@table, {call_id, accepted})
       notify(call.caller_id, "private_call_accepted", call_payload(accepted, caller_token))
       notify(call.recipient_id, "private_call_answered", call_payload(accepted))
+
+      publish_event(accepted, "active")
+
       {:reply, {:ok, call_payload(accepted, token)}, state}
     else
       error -> {:reply, error, state}
@@ -102,7 +106,12 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
       status = if action == :reject, do: :rejected, else: :ended
       reason = end_reason(action, call, user_id)
       notify_participants(call, event, end_payload(%{call | status: status}, reason, user_id))
-      publish_event(call, if(action == :reject, do: "rejected", else: "ended"))
+
+      publish_event(call, if(action == :reject, do: "rejected", else: "ended"), %{
+        "reason" => reason,
+        "ended_by" => user_id
+      })
+
       {:reply, :ok, state}
     else
       error -> {:reply, error, state}
@@ -111,6 +120,10 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
 
   def handle_call({:get, call_id}, _from, state) do
     {:reply, fetch(call_id), state}
+  end
+
+  def handle_call({:replicate_event, event}, _from, state) do
+    {:reply, replicate_event_locally(event), state}
   end
 
   def handle_call({:reconcile, participants}, _from, state) do
@@ -131,7 +144,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
         :ets.delete(@table, call_id)
         payload = end_payload(%{call | status: :ended}, "missed", nil)
         notify_participants(call, "private_call_missed", payload)
-        publish_event(call, "missed")
+        publish_event(call, "missed", %{"reason" => "missed"})
 
       _ ->
         :ok
@@ -160,7 +173,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
     :ets.delete(@table, call.id)
     ended = %{call | status: :ended}
     notify_participants(call, "private_call_ended", end_payload(ended, "disconnected", nil))
-    publish_event(call, "ended")
+    publish_event(call, "ended", %{"reason" => "disconnected"})
     # Disconnects whoever is still in the room
     Task.start(fn -> room_service().delete_room(call.room_name) end)
   end
@@ -218,6 +231,110 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
     end
   end
 
+  defp replicate_event_locally(%{"status" => status} = event)
+       when status in ["ringing", "active", "rejected", "missed", "ended"] do
+    with {:ok, call} <- event_call(event) do
+      case status do
+        "ringing" -> replicate_ringing(call)
+        "active" -> replicate_active(call, event)
+        terminal -> replicate_terminal(call, terminal, event)
+      end
+    end
+  end
+
+  defp replicate_event_locally(_event), do: {:error, :invalid_event}
+
+  defp event_call(event) do
+    with call_id when is_binary(call_id) and call_id != "" <- event["call_id"],
+         conversation_id when is_binary(conversation_id) and conversation_id != "" <-
+           event["conversation_id"],
+         caller_id when is_binary(caller_id) and caller_id != "" <- event["caller_id"],
+         recipient_id when is_binary(recipient_id) and recipient_id != "" <- event["recipient_id"] do
+      {:ok,
+       %{
+         id: call_id,
+         caller_id: caller_id,
+         recipient_id: recipient_id,
+         conversation_id: conversation_id,
+         room_name: event["room_name"] || "private-call:" <> call_id,
+         status: :ringing,
+         inserted_at: System.system_time(:millisecond),
+         incomplete_since: nil
+       }}
+    else
+      _ -> {:error, :invalid_event}
+    end
+  end
+
+  defp replicate_ringing(call) do
+    case fetch(call.id) do
+      {:ok, _existing} ->
+        :ok
+
+      {:error, :call_not_found} ->
+        :ets.insert(@table, {call.id, call})
+        notify(call.recipient_id, "private_call_incoming", call_payload(call))
+        :ok
+    end
+  end
+
+  defp replicate_active(call, _event) do
+    case fetch(call.id) do
+      {:ok, %{status: :active}} ->
+        :ok
+
+      {:ok, existing} ->
+        active = %{existing | status: :active}
+        :ets.insert(@table, {call.id, active})
+
+        notify(
+          call.caller_id,
+          "private_call_accepted",
+          call_payload(active, token_for(active, call.caller_id))
+        )
+
+        notify(call.recipient_id, "private_call_answered", call_payload(active))
+        :ok
+
+      {:error, :call_not_found} ->
+        active = %{call | status: :active}
+        :ets.insert(@table, {call.id, active})
+
+        notify(
+          call.caller_id,
+          "private_call_accepted",
+          call_payload(active, token_for(active, call.caller_id))
+        )
+
+        notify(call.recipient_id, "private_call_answered", call_payload(active))
+        :ok
+    end
+  end
+
+  defp replicate_terminal(call, status, event) do
+    case fetch(call.id) do
+      {:error, :call_not_found} ->
+        :ok
+
+      {:ok, existing} ->
+        :ets.delete(@table, call.id)
+        terminal_status = if status == "rejected", do: :rejected, else: :ended
+        reason = event["reason"] || if(status == "missed", do: "missed", else: "hangup")
+        ended_by = Map.get(event, "ended_by")
+
+        event_name =
+          if status == "rejected", do: "private_call_rejected", else: "private_call_" <> status
+
+        notify_participants(
+          existing,
+          event_name,
+          end_payload(%{existing | status: terminal_status}, reason, ended_by)
+        )
+
+        :ok
+    end
+  end
+
   defp require_participant(%{caller_id: user_id, recipient_id: user_id}, _),
     do: {:error, :invalid_call}
 
@@ -269,17 +386,23 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
     notify(call.recipient_id, event, payload)
   end
 
-  defp publish_event(call, status) do
-    DiscordiaSignaling.Voice.VoicePresencePublisher.publish(%{
-      "event_type" => "voice.private_call",
-      "event_id" => call_id(),
-      "occurred_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
-      "call_id" => call.id,
-      "conversation_id" => call.conversation_id,
-      "caller_id" => call.caller_id,
-      "recipient_id" => call.recipient_id,
-      "status" => status
-    })
+  defp publish_event(call, status, extra \\ %{}) do
+    DiscordiaSignaling.Voice.VoicePresencePublisher.publish(
+      Map.merge(
+        %{
+          "event_type" => "voice.private_call",
+          "event_id" => call_id(),
+          "occurred_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+          "call_id" => call.id,
+          "conversation_id" => call.conversation_id,
+          "caller_id" => call.caller_id,
+          "recipient_id" => call.recipient_id,
+          "room_name" => call.room_name,
+          "status" => status
+        },
+        extra
+      )
+    )
   end
 
   defp call_id,
