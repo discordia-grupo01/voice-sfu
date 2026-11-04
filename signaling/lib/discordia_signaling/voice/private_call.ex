@@ -9,7 +9,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Voice.{LiveKitRoomService, LiveKitToken, VoiceAccess}
+  alias DiscordiaSignaling.Voice.{LiveKitRoomService, LiveKitToken, ScreenShare, VoiceAccess}
 
   @table :private_voice_calls
   @timeout_ms 30_000
@@ -35,6 +35,9 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   def replicate_event(event), do: GenServer.call(__MODULE__, {:replicate_event, event})
 
   def reconcile(participants), do: GenServer.call(__MODULE__, {:reconcile, participants})
+
+  def screen_share_token(call_id, user_id),
+    do: GenServer.call(__MODULE__, {:screen_share_token, call_id, user_id})
 
   @impl true
   def init(state) do
@@ -120,6 +123,24 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
 
   def handle_call({:get, call_id}, _from, state) do
     {:reply, fetch(call_id), state}
+  end
+
+  def handle_call({:screen_share_token, call_id, user_id}, _from, state) do
+    reply =
+      with {:ok, call} <- fetch(call_id),
+           :ok <- require_participant(call, user_id),
+           :ok <- require_status(call, :active),
+           {:ok, token} <- LiveKitToken.issue_screen_share(user_id, user_id, call.room_name) do
+        {:ok,
+         %{
+           "identity" => ScreenShare.identity(user_id),
+           "room_name" => call.room_name,
+           "token" => token,
+           "url" => LiveKitToken.url()
+         }}
+      end
+
+    {:reply, reply, state}
   end
 
   def handle_call({:replicate_event, event}, _from, state) do

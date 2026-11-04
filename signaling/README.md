@@ -21,6 +21,9 @@ delivered on the authenticated `voice_user:<user_id>` socket topic; the
 `voice.private_call` event is also published for Notifications push delivery.
 The accept response (recipient) and the `private_call_accepted` event (caller)
 include the LiveKit `token` and `url` each participant needs to join the room.
+`POST /api/voice/calls/:id/screen-token` gives a participant of an active call
+the screen-only companion token (`<user_id>:screen`) the Android app uses to
+share its screen.
 
 ## Current boundary
 
