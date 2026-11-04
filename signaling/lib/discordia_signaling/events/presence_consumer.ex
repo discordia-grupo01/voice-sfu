@@ -13,9 +13,9 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
   require Logger
 
   alias DiscordiaSignaling.Events.RabbitMQ
-  alias DiscordiaSignaling.Voice.VoiceSessionRegistry
+  alias DiscordiaSignaling.Voice.{PrivateCall, VoiceSessionRegistry}
 
-  @routing_keys ["voice.participant_joined", "voice.participant_left"]
+  @routing_keys ["voice.participant_joined", "voice.participant_left", "voice.private_call"]
   @default_exchange "discordia.events"
 
   def start_link(opts) do
@@ -89,7 +89,13 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
     with {:ok, event} <- Jason.decode(payload),
          true <- is_map(event),
          true <- routing_key in @routing_keys do
-      VoiceSessionRegistry.replicate_presence(Map.put(event, "event_type", routing_key))
+      event = Map.put(event, "event_type", routing_key)
+
+      if routing_key == "voice.private_call" do
+        PrivateCall.replicate_event(event)
+      else
+        VoiceSessionRegistry.replicate_presence(event)
+      end
     end
 
     :ack

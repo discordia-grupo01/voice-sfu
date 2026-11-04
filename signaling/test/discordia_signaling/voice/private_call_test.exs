@@ -37,6 +37,39 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
     assert call_id == call.id
   end
 
+  test "replicates a remote call lifecycle and preserves the end reason" do
+    subscribe_users(["remote-caller", "remote-recipient"])
+
+    event = %{
+      "event_type" => "voice.private_call",
+      "call_id" => "remote-call",
+      "conversation_id" => "conversation-remote",
+      "caller_id" => "remote-caller",
+      "recipient_id" => "remote-recipient",
+      "room_name" => "private-call:remote-call",
+      "status" => "ringing"
+    }
+
+    assert :ok = PrivateCall.replicate_event(event)
+    assert_receive {:private_call, "private_call_incoming", %{"call_id" => "remote-call"}}
+
+    assert :ok =
+             PrivateCall.replicate_event(
+               Map.merge(event, %{
+                 "status" => "rejected",
+                 "reason" => "declined",
+                 "ended_by" => "remote-recipient"
+               })
+             )
+
+    assert_received_twice("private_call_rejected", %{
+      "reason" => "declined",
+      "ended_by" => "remote-recipient"
+    })
+
+    assert {:error, :call_not_found} = PrivateCall.get("remote-call")
+  end
+
   test "rejects a call when the direct conversation is blocked" do
     Application.put_env(
       :discordia_signaling,
@@ -97,6 +130,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
 
     subscribe_users(["caller-4", "recipient-4"])
     assert :ok = PrivateCall.reject(call.id, "recipient-4")
+
     assert_received_twice("private_call_rejected", %{
       "status" => "rejected",
       "reason" => "declined",
@@ -152,6 +186,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
 
     subscribe_users(["recipient-5"])
     assert :ok = PrivateCall.finish(call.id, "recipient-5")
+
     assert_received_twice("private_call_ended", %{
       "status" => "ended",
       "reason" => "hangup",
