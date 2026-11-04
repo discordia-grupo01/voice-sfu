@@ -1,14 +1,24 @@
 defmodule DiscordiaSignaling.Events.SuspensionConsumer do
   @moduledoc """
-  Removes suspended users from their active voice room.
+  Removes from voice whoever admin suspended.
 
-  Consumes `admin.user_suspended`, verifies its HMAC signature and, when the
-  event carries a version newer than the last one handled for that user, takes
-  the user out of their room with the same operation used by
-  `servers.channel_access_revoked`. Entry to voice is blocked by `servers`
-  when the LiveKit token is requested; this consumer only handles users who
-  were already connected. It also drops the user's cached server memberships
-  (see `MembershipCache`). `admin.user_reactivated` needs no action here.
+  Consumes `admin.user_suspended` and `admin.server_suspended`, verifies the HMAC
+  signature and, when the event carries a version newer than the last one
+  handled for that user or server, acts on whoever was already connected:
+
+    * a suspended user is taken out of their room with the same operation used
+      by `servers.channel_access_revoked`, and their cached server memberships
+      are dropped (see `MembershipCache`);
+    * a suspended server has all its voice rooms closed, with the operation
+      `servers.server_deleted` uses, and the cached memberships of that server
+      are dropped. The event names no channel, so the rooms come from
+      `VoiceSessionRegistry.rooms_of_server/1`.
+
+  Entry to voice is blocked by `servers` when the LiveKit token is requested;
+  this consumer only handles people who were already connected.
+  `admin.user_reactivated` needs no action here, and `admin.server_reactivated`
+  only records its version, so that an older suspension arriving late can't
+  expel people who already came back.
   """
 
   use GenServer
@@ -18,6 +28,9 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
   alias DiscordiaSignaling.Voice.{MembershipCache, VoiceSessionRegistry}
 
   @suspended_key "admin.user_suspended"
+  @server_suspended_key "admin.server_suspended"
+  @server_reactivated_key "admin.server_reactivated"
+  @routing_keys [@suspended_key, @server_suspended_key, @server_reactivated_key]
   @default_exchange "discordia.events"
   @default_queue "voice.signaling"
 
@@ -99,7 +112,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
 
   defp handle_event(routing_key, event, secret) do
     if AdminSignature.verify(routing_key, event, secret) do
-      suspend(parse_event(routing_key, event))
+      routing_key |> parse_event(event) |> apply_event()
     else
       Logger.warning("voice_suspension_invalid_signature",
         event_id: Map.get(event, "event_id"),
@@ -110,7 +123,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
     end
   end
 
-  defp suspend({:ok, user_id, version}) do
+  defp apply_event({:suspend_user, user_id, version}) do
     if SuspensionVersions.newer?(user_id, version) do
       # Before anything that can fail and be retried: a membership confirmed
       # before the suspension must not keep answering for up to its TTL.
@@ -129,7 +142,46 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
     end
   end
 
-  defp suspend({:error, _reason}), do: :ack
+  defp apply_event({:suspend_server, server_id, version}) do
+    key = {:server, server_id}
+
+    if SuspensionVersions.newer?(key, version) do
+      # Before anything that can fail and be retried, like the user case.
+      MembershipCache.forget_server(server_id)
+
+      case close_server_rooms(server_id) do
+        {:ok, closed} ->
+          SuspensionVersions.record(key, version)
+          Logger.info("voice_server_suspended", server_id: server_id, rooms_closed: closed)
+          :ack
+
+        {:error, _reason} ->
+          :retry
+      end
+    else
+      :ack
+    end
+  end
+
+  defp apply_event({:reactivate_server, server_id, version}) do
+    SuspensionVersions.record({:server, server_id}, version)
+    :ack
+  end
+
+  defp apply_event({:error, _reason}), do: :ack
+
+  # Every room is attempted even if one fails, so a LiveKit hiccup on one room
+  # doesn't leave the others open; the whole event is retried afterwards.
+  defp close_server_rooms(server_id) do
+    results =
+      server_id
+      |> VoiceSessionRegistry.rooms_of_server()
+      |> Enum.map(&VoiceSessionRegistry.close_room/1)
+
+    if Enum.all?(results, &(&1 == :ok)),
+      do: {:ok, length(results)},
+      else: {:error, :livekit_unavailable}
+  end
 
   defp remove_from_room(user_id) do
     case VoiceSessionRegistry.active_room(user_id) do
@@ -140,10 +192,22 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
 
   defp parse_event(@suspended_key, %{"user_id" => user_id, "version" => version})
        when is_binary(user_id) and user_id != "" and is_integer(version) do
-    {:ok, user_id, version}
+    {:suspend_user, user_id, version}
   end
 
+  defp parse_event(@server_suspended_key, event), do: parse_server_event(:suspend_server, event)
+
+  defp parse_event(@server_reactivated_key, event),
+    do: parse_server_event(:reactivate_server, event)
+
   defp parse_event(_routing_key, _event), do: {:error, :invalid_event}
+
+  defp parse_server_event(action, %{"server_id" => server_id, "version" => version})
+       when is_binary(server_id) and server_id != "" and is_integer(version) and version >= 1 do
+    {action, server_id, version}
+  end
+
+  defp parse_server_event(_action, _event), do: {:error, :invalid_event}
 
   defp acknowledge(:ack, channel, delivery_tag), do: AMQP.Basic.ack(channel, delivery_tag)
 
@@ -162,6 +226,11 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
   end
 
   defp bind(channel, state) do
-    AMQP.Queue.bind(channel, state.queue, state.exchange, routing_key: @suspended_key)
+    Enum.reduce_while(@routing_keys, :ok, fn key, :ok ->
+      case AMQP.Queue.bind(channel, state.queue, state.exchange, routing_key: key) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
   end
 end
