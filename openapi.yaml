@@ -236,6 +236,39 @@ paths:
         "404": {description: Call not found}
         "409": {description: Call is not active}
 
+  /api/voice/calls/{id}/screen-token:
+    post:
+      summary: Issue a LiveKit token to share the phone screen in a private call
+      description: >-
+        Same companion token as /api/voice/screen-token, for a private call
+        instead of a server channel. Only a participant of an active call gets
+        it. The companion <user_id>:screen does not count as a participant when
+        abandoned calls are reconciled, and it is disconnected when the call
+        room is deleted.
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Token issued successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [identity, room_name, token, url]
+                properties:
+                  identity: {type: string, example: "user-42:screen"}
+                  room_name: {type: string, example: "private-call:abc123"}
+                  token:
+                    type: string
+                    description: Signed LiveKit JWT that can only publish screen_share and screen_share_audio
+                  url: {type: string, example: "ws://localhost:7880"}
+        "403": {description: User is not a participant (voice_call_forbidden)}
+        "404": {description: Call not found (call_not_found)}
+        "409": {description: Call is not active (invalid_call_state)}
+        "503": {description: LiveKit is not configured (voice_unavailable)}
+
   /api/voice/screen-token:
     post:
       summary: Issue a LiveKit token to share the phone screen

@@ -45,7 +45,11 @@ contra Messaging, incluyendo bloqueos en ambos sentidos, y crea una sala
 `private-call:<call_id>`. La aceptación, el rechazo y la finalización se
 gestionan en `/api/voice/calls/:id/{accept,reject,finish}`. Las transiciones
 llegan al topic autenticado `voice_user:<user_id>` y se publica
-`voice.private_call` para Notifications.
+`voice.private_call` para Notifications. Para compartir la pantalla desde el
+APK durante una llamada privada, `POST /api/voice/calls/:id/screen-token` da el
+mismo token de acompañante `<user_id>:screen`; solo lo reciben los dos
+participantes y con la llamada ya atendida (`403 voice_call_forbidden`,
+`404 call_not_found`, `409 invalid_call_state`).
 
 ### Docker Compose
 
