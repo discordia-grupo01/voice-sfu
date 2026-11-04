@@ -84,6 +84,14 @@ Además consume `admin.user_suspended` (`Events.SuspensionConsumer`, cola propia
 - `admin.user_reactivated` no requiere nada en voz.
 - Si `ADMIN_EVENTS_HMAC_SECRET` está vacío, este consumidor no arranca (se loguea el error) y el resto del servicio sigue.
 
+La misma cola recibe también la moderación de **servidores** (HU #69), con la misma firma pero con `server_id` como sujeto firmado en lugar de `user_id`:
+
+- `admin.server_suspended`: si su `version` es mayor a la última vista para ese servidor (en memoria, como las de usuarios), olvida las membresías de ese servidor en `MembershipCache`, cierra con `DeleteRoom` todas las salas que este nodo conoce para el servidor (`VoiceSessionRegistry.rooms_of_server/1`, el evento no trae canales) y registra la versión. Es el mismo camino que `servers.server_deleted`, así que se corta también a quien comparte pantalla. Si LiveKit no responde se reencola sin registrar la versión.
+- `admin.server_reactivated`: no abre ni cierra nada; solo registra la versión, para que una suspensión más vieja que llegue tarde no vuelva a sacar a quien ya reingresó.
+- Se descartan con ack, sin tocar nada, los eventos con firma ausente o inválida, JSON roto, `server_id` vacío o `version < 1`.
+- `admin.server_deletion_requested` no se consume acá: `servers` lo ejecuta y publica `servers.server_deleted`, que voz ya procesa.
+- La **entrada** a voz de un servidor suspendido la bloquea `voice-access` de `servers` con `403` (voz lo traduce a `voice_forbidden`, igual que el `403` de `/membership` en la presencia). Orden de despliegue: voz tiene que estar desplegada **antes** que admin; si no, un `server_suspended` publicado antes de que exista el binding no llega y se recupera con `make republish-suspensions` en admin.
+
 La **entrada** de un suspendido a voz no se decide acá: `POST /api/voice/token` autoriza contra `voice-access` de `servers` (`VOICE_AUTHZ_MODE=servers_api`), que responde `403` a un suspendido, y voz devuelve `403 voice_forbidden`. Con `VOICE_AUTHZ_MODE=allow_authenticated` (solo desarrollo) un suspendido sí podría entrar. Si voz estaba caída cuando se suspendió al usuario, puede seguir en la sala hasta que venza el token de LiveKit (1 hora); `make republish-suspensions` en admin re-publica las suspensiones vigentes.
 
 Una sala o participante que LiveKit ya no tiene cuenta como éxito. Si LiveKit no responde, el mensaje se devuelve a la cola (nack con requeue) y se reintenta entero; repetir la salida o el cierre es idempotente. Los payloads inválidos se descartan con ack. Los contratos están en `discordia-events_contract` (`channels/events.go`, `servers/events.go`).
