@@ -87,4 +87,26 @@ defmodule DiscordiaSignaling.Voice.MembershipCacheTest do
     MembershipCache.fetch({"u", "s"}, 0, fun)
     assert calls.() == 4
   end
+
+  test "forget_server drops that server's memberships for every user and keeps the others" do
+    {fun, calls} = counting(:ok)
+
+    MembershipCache.fetch({"u1", "s1"}, 60_000, fun)
+    MembershipCache.fetch({"u2", "s1"}, 60_000, fun)
+    MembershipCache.fetch({"u1", "s2"}, 60_000, fun)
+    assert calls.() == 3
+
+    assert :ok = MembershipCache.forget_server("s1")
+
+    MembershipCache.fetch({"u1", "s2"}, 60_000, fun)
+    assert calls.() == 3
+
+    MembershipCache.fetch({"u1", "s1"}, 60_000, fun)
+    MembershipCache.fetch({"u2", "s1"}, 60_000, fun)
+    assert calls.() == 5
+  end
+
+  test "forget_server on a server with nothing cached is a no-op" do
+    assert :ok = MembershipCache.forget_server("nothing")
+  end
 end

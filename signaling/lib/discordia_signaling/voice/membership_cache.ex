@@ -64,6 +64,20 @@ defmodule DiscordiaSignaling.Voice.MembershipCache do
     ArgumentError -> :ok
   end
 
+  @doc """
+  Forgets every membership remembered for `server_id`, for any user. Used when
+  the server is suspended, so the next presence request asks the servers API
+  again -- which now refuses -- instead of reusing a confirmation that may be up
+  to the TTL old.
+  """
+  @spec forget_server(String.t()) :: :ok
+  def forget_server(server_id) do
+    :ets.match_delete(@table, {{:_, server_id}, :_})
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
   @doc "Forgets every entry."
   @spec clear() :: :ok
   def clear do

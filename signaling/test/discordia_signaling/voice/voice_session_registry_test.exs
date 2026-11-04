@@ -524,4 +524,43 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
     Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
     VoiceSessionRegistry.leave("registry-user-1", "voice:room-1")
   end
+
+  describe "rooms_of_server/1" do
+    defp joined(identity, room_id, server_id) do
+      VoiceSessionRegistry.replicate_presence(%{
+        "event_type" => "voice.participant_joined",
+        "occurred_at" => "2026-10-14T12:00:00Z",
+        "server_id" => server_id,
+        "room_id" => room_id,
+        "participant_id" => identity,
+        "name" => "Ada"
+      })
+    end
+
+    test "lists the rooms where someone from that server is connected, once each" do
+      joined("rooms-user-1", "rooms-a", "rooms-server-1")
+      joined("rooms-user-2", "rooms-a", "rooms-server-1")
+      joined("rooms-user-3", "rooms-b", "rooms-server-1")
+      joined("rooms-user-4", "rooms-c", "rooms-server-2")
+
+      assert Enum.sort(VoiceSessionRegistry.rooms_of_server("rooms-server-1")) ==
+               ["voice:rooms-a", "voice:rooms-b"]
+
+      assert VoiceSessionRegistry.rooms_of_server("rooms-server-2") == ["voice:rooms-c"]
+    end
+
+    test "still lists a room this node saw for the server after everyone left it" do
+      joined("rooms-user-5", "rooms-d", "rooms-server-3")
+      VoiceSessionRegistry.leave("rooms-user-5", "voice:rooms-d")
+
+      assert VoiceSessionRegistry.active_room("rooms-user-5") == nil
+      assert "voice:rooms-d" in VoiceSessionRegistry.rooms_of_server("rooms-server-3")
+    end
+
+    test "is empty for a server it has never seen, and for a blank or non-binary id" do
+      assert VoiceSessionRegistry.rooms_of_server("rooms-unknown-server") == []
+      assert VoiceSessionRegistry.rooms_of_server("") == []
+      assert VoiceSessionRegistry.rooms_of_server(nil) == []
+    end
+  end
 end
