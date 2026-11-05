@@ -32,4 +32,12 @@ defmodule DiscordiaSignaling.Events.SuspensionVersionsTest do
 
     assert SuspensionVersions.newer?("user-2", 1)
   end
+
+  test "keys can be any term, so a server and a user with the same id don't collide" do
+    :ok = SuspensionVersions.record({:server, "id-1"}, 4)
+
+    refute SuspensionVersions.newer?({:server, "id-1"}, 4)
+    assert SuspensionVersions.newer?({:server, "id-1"}, 5)
+    assert SuspensionVersions.newer?("id-1", 1)
+  end
 end

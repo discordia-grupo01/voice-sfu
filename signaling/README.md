@@ -42,7 +42,7 @@ share its screen.
   queues. Defaults to `FLY_ALLOC_ID`, `HOSTNAME` or `default`; set it explicitly
   when running multiple local replicas. Do not reuse the same value across
   simultaneously running replicas.
-- `ADMIN_EVENTS_HMAC_SECRET`: secret shared with admin to verify the signature of `admin.user_suspended`. If empty, the suspension consumer does not start (an error is logged) and the rest of the service keeps running.
+- `ADMIN_EVENTS_HMAC_SECRET`: secret shared with admin to verify the signature of `admin.user_suspended`, `admin.server_suspended` and `admin.server_reactivated`. If empty, the suspension consumer does not start (an error is logged) and the rest of the service keeps running.
 - `VOICE_AUTHZ_MODE`: `servers_api` for membership and `VIEW_CHANNELS` checks; `allow_authenticated` is local-only.
 - `PHOENIX_CHECK_ORIGINS`: comma-separated browser origins allowed to open
   Phoenix sockets. Local defaults are `http://localhost:3000` and
@@ -135,6 +135,17 @@ signatures and malformed payloads are acked and discarded. Blocking *entry* is
 not done here: `POST /api/voice/token` relies on `voice-access` in `servers`,
 which answers `403` for a suspended user (with `VOICE_AUTHZ_MODE=allow_authenticated`,
 local only, a suspended user could still get a token).
+
+The same consumer also binds `admin.server_suspended` and
+`admin.server_reactivated` (signed over the `server_id` instead of the
+`user_id`). A suspended server whose version is newer than the last one seen
+for `{:server, server_id}` has its voice rooms closed with
+`VoiceSessionRegistry.close_room/1` -- the operation `servers.server_deleted`
+uses -- and its cached memberships dropped (`MembershipCache.forget_server/1`).
+The event carries no channel ids, so the rooms come from
+`VoiceSessionRegistry.rooms_of_server/1`. A reactivation only records its
+version. `admin.server_deletion_requested` is not consumed here: `servers` runs
+it and publishes `servers.server_deleted`.
 
 ## Tests y cobertura
 
