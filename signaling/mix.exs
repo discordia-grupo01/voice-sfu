@@ -8,7 +8,8 @@ defmodule DiscordiaSignaling.MixProject do
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       test_coverage: [summary: [threshold: 70]],
-      deps: deps()
+      deps: deps(),
+      releases: releases()
     ]
   end
 
@@ -19,6 +20,14 @@ defmodule DiscordiaSignaling.MixProject do
     ]
   end
 
+  defp releases do
+    [
+      discordia_signaling: [
+        applications: [opentelemetry_exporter: :permanent, opentelemetry: :temporary]
+      ]
+    ]
+  end
+
   defp deps do
     [
       {:plug_cowboy, "~> 2.7.1"},
@@ -26,7 +35,10 @@ defmodule DiscordiaSignaling.MixProject do
       {:phoenix_pubsub, "~> 2.1.3"},
       {:jason, "~> 1.4.3"},
       {:jose, "~> 1.11.10"},
-      {:amqp, "~> 4.0"}
+      {:amqp, "~> 4.0"},
+      {:opentelemetry_api, "~> 1.4"},
+      {:opentelemetry, "~> 1.5"},
+      {:opentelemetry_exporter, "~> 1.8"}
     ]
   end
 end

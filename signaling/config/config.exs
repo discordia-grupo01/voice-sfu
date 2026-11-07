@@ -37,7 +37,9 @@ config :logger, :console,
     :failed,
     :hint,
     :version,
-    :log_level
+    :log_level,
+    :trace_id,
+    :span_id
   ]
 
 config :phoenix, :logger, false

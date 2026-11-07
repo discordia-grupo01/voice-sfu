@@ -18,6 +18,23 @@ log_level =
 
 config :logger, level: log_level
 
+otlp_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+
+config :opentelemetry,
+  text_map_propagators: [:trace_context],
+  resource: [service: [name: System.get_env("OTEL_SERVICE_NAME", "voice-sfu")]]
+
+if config_env() == :test do
+  config :opentelemetry, traces_exporter: :none, processors: [{:otel_simple_processor, %{}}]
+else
+  if otlp_endpoint == "" do
+    config :opentelemetry, traces_exporter: :none
+  else
+    config :opentelemetry, traces_exporter: :otlp
+    config :opentelemetry_exporter, otlp_protocol: :http_protobuf
+  end
+end
+
 allowed_origins =
   System.get_env(
     "PHOENIX_CHECK_ORIGINS",
