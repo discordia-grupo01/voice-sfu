@@ -1,5 +1,23 @@
 import Config
 
+log_level =
+  case config_env() do
+    :dev -> "debug"
+    :test -> "warning"
+    :prod -> "info"
+  end
+  |> then(&System.get_env("LOG_LEVEL", &1))
+  |> String.downcase()
+  |> case do
+    "debug" -> :debug
+    "info" -> :info
+    level when level in ["warn", "warning"] -> :warning
+    "error" -> :error
+    other -> raise "LOG_LEVEL must be one of debug, info, warning, error (got: #{inspect(other)})"
+  end
+
+config :logger, level: log_level
+
 allowed_origins =
   System.get_env(
     "PHOENIX_CHECK_ORIGINS",

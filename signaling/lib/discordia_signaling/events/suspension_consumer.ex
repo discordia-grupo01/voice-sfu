@@ -25,6 +25,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
   require Logger
 
   alias DiscordiaSignaling.Events.{AdminSignature, DeadLetter, RabbitMQ, SuspensionVersions}
+  alias DiscordiaSignaling.Log
   alias DiscordiaSignaling.Voice.{MembershipCache, VoiceSessionRegistry}
 
   @suspended_key "admin.user_suspended"
@@ -63,7 +64,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
 
       {:error, reason} ->
         Logger.warning("voice_suspension_consumer_connect_failed",
-          reason: inspect(reason),
+          reason: Log.reason(reason),
           queue: state.queue,
           exchange: state.exchange
         )
@@ -75,7 +76,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
 
   @impl true
   def handle_info({:DOWN, _ref, :process, _pid, reason}, state) do
-    Logger.warning("voice_suspension_consumer_connection_down", reason: inspect(reason))
+    Logger.warning("voice_suspension_consumer_connection_down", reason: Log.reason(reason))
     send(self(), :connect)
     {:noreply, %{state | connection: nil, channel: nil}}
   end
