@@ -25,8 +25,8 @@ defmodule DiscordiaSignalingWeb.Router do
   scope "/", DiscordiaSignalingWeb do
     pipe_through(:api)
 
-    get("/livez", HealthController, :show)
-    get("/readyz", HealthController, :show)
+    get("/livez", HealthController, :livez)
+    get("/readyz", HealthController, :readyz)
   end
 
   scope "/api", DiscordiaSignalingWeb do

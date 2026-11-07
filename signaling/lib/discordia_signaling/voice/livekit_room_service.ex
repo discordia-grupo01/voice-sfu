@@ -5,6 +5,14 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
 
   @receive_timeout 4_000
 
+  @spec ping() :: :ok | {:error, atom()}
+  def ping do
+    with {:ok, config} <- livekit_config(),
+         {:ok, _rooms} <- request_json(config, "/twirp/livekit.RoomService/ListRooms", %{}) do
+      :ok
+    end
+  end
+
   @spec active_participants() :: {:ok, [map()]} | {:error, atom()}
   def active_participants do
     with {:ok, config} <- livekit_config(),

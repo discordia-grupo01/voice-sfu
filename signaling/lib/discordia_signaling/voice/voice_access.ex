@@ -63,7 +63,8 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
   def authorize_with_permissions(_user_id, _channel_id, _authorization_header),
     do: {:error, :forbidden}
 
-  defp authz_mode do
+  @spec authz_mode() :: String.t()
+  def authz_mode do
     System.get_env(
       "VOICE_AUTHZ_MODE",
       Application.get_env(:discordia_signaling, :servers, [])[:authz_mode] || "deny"
