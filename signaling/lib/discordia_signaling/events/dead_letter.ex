@@ -1,6 +1,8 @@
 defmodule DiscordiaSignaling.Events.DeadLetter do
   require Logger
 
+  alias DiscordiaSignaling.Log
+
   @exchange "discordia.dlx"
   @suffix ".dlq"
   @reason "retries_exhausted"
@@ -88,7 +90,7 @@ defmodule DiscordiaSignaling.Events.DeadLetter do
             queue: state.queue,
             routing_key: meta.routing_key,
             event_id: event_id(payload),
-            reason: inspect(reason)
+            reason: Log.reason(reason)
           )
 
           :retry

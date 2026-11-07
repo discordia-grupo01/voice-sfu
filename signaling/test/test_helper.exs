@@ -1,4 +1,5 @@
 Code.require_file("support/test_helpers.ex", __DIR__)
+Code.require_file("support/stub_http.ex", __DIR__)
 ExUnit.start(exclude: [:integration])
 
 Application.put_env(

@@ -9,7 +9,26 @@ mix deps.get
 mix phx.server
 ```
 
-The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoenix channels use `/socket` and the `voice:*` and `voice_server:*` topics.
+The service listens on `http://localhost:4000`. Phoenix channels use `/socket` and the `voice:*` and `voice_server:*` topics.
+
+### Health checks
+
+`GET /livez` and `GET /readyz` are different actions and share no logic.
+
+- `/livez` only confirms the process answers HTTP. It never calls LiveKit, `servers` or RabbitMQ, so a failing dependency never makes the platform restart a healthy process.
+- `/readyz` checks what voice needs to do its job and answers `503` with the names that failed (`{"status":"unavailable","failed":["livekit"]}`):
+  - `livekit`: an authenticated `ListRooms` call against the LiveKit API, which also proves the API key and secret are valid.
+  - `servers`: `GET <SERVERS_URL>/livez`. Only checked when `VOICE_AUTHZ_MODE=servers_api`, because that is the only mode where joining a room goes through `servers`.
+
+  Each check gives up after 1.5 s, so the whole call stays under the 2 s timeout of the Fly.io health check. RabbitMQ is not checked: the consumers reconnect by themselves and token issuing does not need the broker.
+
+### Logs
+
+Every line is one JSON object on stdout with `time`, `level` (`debug`, `info`, `warning` or `error`), `service` (`voice-sfu`), `message` and the metadata listed in `config/config.exs`. The level is set with `LOG_LEVEL` (see below).
+
+- Requests are logged as `http_request` with the route pattern (`/api/voice/calls/:id/accept`), never the real path or the query string, together with `method`, `status`, `duration_ms` and `user_id`. `/livez` and `/readyz` are `debug` unless they fail.
+- Socket and channel events (`socket_connected`, `channel_joined`, `channel_event`) log the result, the topic and the event name, never the ticket or the payload.
+- The formatter replaces any field named `content`, `ticket`, `token`, `jwt`, `authorization`, `password` or `secret` with `[FILTERED]`, and errors are reduced to their module and atom reason (`DiscordiaSignaling.Log.reason/1`).
 
 Private one-to-one calls use `POST /api/voice/calls` with
 `recipient_id` and `conversation_id`. Signaling asks Messaging to authorize
@@ -32,6 +51,7 @@ share its screen.
 ## Environment
 
 - `PORT`: HTTP port, defaults to `4000`.
+- `LOG_LEVEL`: `debug`, `info`, `warning` or `error`. Defaults to `info` in production, `debug` in development and `warning` in tests. Any other value makes the service fail at boot.
 - `SECRET_KEY_BASE`: required when `MIX_ENV=prod`.
 - `SERVERS_URL`: base URL of the servers service used for voice authorization.
 - `MESSAGING_URL`: base URL of Messaging used to validate direct-call access and blocks.

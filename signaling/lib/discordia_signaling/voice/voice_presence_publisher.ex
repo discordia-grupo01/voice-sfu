@@ -5,6 +5,7 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   require Logger
 
   alias DiscordiaSignaling.Events.RabbitMQ
+  alias DiscordiaSignaling.Log
 
   @max_buffer 1_000
   @min_backoff 1_000
@@ -50,7 +51,7 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
         {:noreply, state}
 
       {:error, reason} ->
-        Logger.warning("voice_presence_publish_failed", reason: inspect(reason))
+        Logger.warning("voice_presence_publish_failed", reason: Log.reason(reason))
         {:noreply, state |> enqueue(event) |> disconnect() |> schedule_connect()}
     end
   end
@@ -63,7 +64,7 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
         {:noreply, flush(%{state | conn: conn, chan: chan, backoff: @min_backoff})}
 
       {:error, reason} ->
-        Logger.warning("voice_presence_publisher_connect_failed", reason: inspect(reason))
+        Logger.warning("voice_presence_publisher_connect_failed", reason: Log.reason(reason))
         {:noreply, schedule_connect(state)}
     end
   end
@@ -71,7 +72,7 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   def handle_info(:connect, state), do: {:noreply, state}
 
   def handle_info({:EXIT, pid, reason}, %{conn: %{pid: pid}} = state) do
-    Logger.warning("voice_presence_publisher_disconnected", reason: inspect(reason))
+    Logger.warning("voice_presence_publisher_disconnected", reason: Log.reason(reason))
     {:noreply, state |> Map.merge(%{conn: nil, chan: nil}) |> schedule_connect()}
   end
 

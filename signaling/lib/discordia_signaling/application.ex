@@ -6,6 +6,13 @@ defmodule DiscordiaSignaling.Application do
 
   @impl true
   def start(_type, _args) do
+    DiscordiaSignaling.Log.Telemetry.attach()
+
+    Logger.info("service_started",
+      version: to_string(Application.spec(:discordia_signaling, :vsn)),
+      log_level: Logger.level()
+    )
+
     children =
       [
         {Phoenix.PubSub, name: DiscordiaSignaling.PubSub},
@@ -68,9 +75,9 @@ defmodule DiscordiaSignaling.Application do
         nil
 
       suspension_secret() == "" ->
-        Logger.error(
-          "voice_suspension_consumer_disabled: ADMIN_EVENTS_HMAC_SECRET is empty, " <>
-            "admin.user_suspended events will not be consumed"
+        Logger.error("voice_suspension_consumer_disabled",
+          reason: "empty_admin_events_hmac_secret",
+          hint: "admin.user_suspended events will not be consumed"
         )
 
         nil

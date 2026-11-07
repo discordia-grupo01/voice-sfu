@@ -11,6 +11,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
   require Logger
 
   alias DiscordiaSignaling.Events.{DeadLetter, RabbitMQ}
+  alias DiscordiaSignaling.Log
   alias DiscordiaSignaling.Voice.{LiveKitRoomService, ScreenShare, VoiceSessionRegistry}
 
   @muted_key "servers.member_muted"
@@ -55,7 +56,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
 
       {:error, reason} ->
         Logger.warning("voice_muting_consumer_connect_failed",
-          reason: inspect(reason),
+          reason: Log.reason(reason),
           queue: state.queue,
           exchange: state.exchange
         )
@@ -67,7 +68,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
 
   @impl true
   def handle_info({:DOWN, _ref, :process, _pid, reason}, state) do
-    Logger.warning("voice_muting_consumer_connection_down", reason: inspect(reason))
+    Logger.warning("voice_muting_consumer_connection_down", reason: Log.reason(reason))
     send(self(), :connect)
     {:noreply, %{state | connection: nil, channel: nil}}
   end
