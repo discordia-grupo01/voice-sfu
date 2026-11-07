@@ -10,7 +10,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Events.RabbitMQ
+  alias DiscordiaSignaling.Events.{DeadLetter, RabbitMQ}
   alias DiscordiaSignaling.Voice.{LiveKitRoomService, ScreenShare, VoiceSessionRegistry}
 
   @muted_key "servers.member_muted"
@@ -37,7 +37,8 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
       exchange: Keyword.get(opts, :exchange, @default_exchange),
       queue: Keyword.get(opts, :queue, @default_queue),
       connection: nil,
-      channel: nil
+      channel: nil,
+      attempts: %{}
     }
 
     send(self(), :connect)
@@ -74,8 +75,8 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
   @impl true
   def handle_info({:basic_deliver, payload, meta}, state) do
     result = process_payload(meta.routing_key, payload)
-    acknowledge(result, state.channel, meta.delivery_tag)
-    {:noreply, state}
+    attempts = DeadLetter.finish(result, state, meta, payload)
+    {:noreply, %{state | attempts: attempts}}
   end
 
   @impl true
@@ -208,16 +209,12 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
 
   defp room_name(channel_id), do: "voice:" <> channel_id
 
-  defp acknowledge(:ack, channel, delivery_tag), do: AMQP.Basic.ack(channel, delivery_tag)
-
-  defp acknowledge(:retry, channel, delivery_tag),
-    do: AMQP.Basic.nack(channel, delivery_tag, requeue: true)
-
   defp connect(state) do
     with {:ok, connection} <- RabbitMQ.open(state.url),
          {:ok, channel} <- AMQP.Channel.open(connection),
          :ok <- AMQP.Exchange.declare(channel, state.exchange, :topic, durable: true),
          {:ok, _} <- AMQP.Queue.declare(channel, state.queue, durable: true),
+         :ok <- DeadLetter.declare(channel, state.queue),
          :ok <- bind(channel, state),
          {:ok, _} <- AMQP.Basic.consume(channel, state.queue) do
       {:ok, connection, channel}
