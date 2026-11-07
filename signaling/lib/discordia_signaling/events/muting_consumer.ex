@@ -12,6 +12,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
 
   alias DiscordiaSignaling.Events.{DeadLetter, RabbitMQ}
   alias DiscordiaSignaling.Log
+  alias DiscordiaSignaling.Tracing
   alias DiscordiaSignaling.Voice.{LiveKitRoomService, ScreenShare, VoiceSessionRegistry}
 
   @muted_key "servers.member_muted"
@@ -75,8 +76,13 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
 
   @impl true
   def handle_info({:basic_deliver, payload, meta}, state) do
-    result = process_payload(meta.routing_key, payload)
-    attempts = DeadLetter.finish(result, state, meta, payload)
+    attempts =
+      Tracing.consumer_span(meta, state.queue, fn ->
+        result = process_payload(meta.routing_key, payload)
+        Tracing.mark_outcome(result)
+        DeadLetter.finish(result, state, meta, payload)
+      end)
+
     {:noreply, %{state | attempts: attempts}}
   end
 

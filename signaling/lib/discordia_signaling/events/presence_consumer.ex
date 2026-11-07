@@ -14,6 +14,7 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
 
   alias DiscordiaSignaling.Events.RabbitMQ
   alias DiscordiaSignaling.Log
+  alias DiscordiaSignaling.Tracing
   alias DiscordiaSignaling.Voice.{PrivateCall, VoiceSessionRegistry}
 
   @routing_keys ["voice.participant_joined", "voice.participant_left", "voice.private_call"]
@@ -65,8 +66,11 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
 
   @impl true
   def handle_info({:basic_deliver, payload, meta}, state) do
-    process_payload(meta.routing_key, payload)
-    AMQP.Basic.ack(state.channel, meta.delivery_tag)
+    Tracing.consumer_span(meta, state.queue, fn ->
+      process_payload(meta.routing_key, payload)
+      AMQP.Basic.ack(state.channel, meta.delivery_tag)
+    end)
+
     {:noreply, state}
   end
 
