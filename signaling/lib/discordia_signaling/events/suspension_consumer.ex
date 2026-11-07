@@ -24,7 +24,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Events.{AdminSignature, RabbitMQ, SuspensionVersions}
+  alias DiscordiaSignaling.Events.{AdminSignature, DeadLetter, RabbitMQ, SuspensionVersions}
   alias DiscordiaSignaling.Voice.{MembershipCache, VoiceSessionRegistry}
 
   @suspended_key "admin.user_suspended"
@@ -45,7 +45,8 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
       queue: Keyword.get(opts, :queue, @default_queue),
       secret: Keyword.get(opts, :hmac_secret, ""),
       connection: nil,
-      channel: nil
+      channel: nil,
+      attempts: %{}
     }
 
     send(self(), :connect)
@@ -82,8 +83,8 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
   @impl true
   def handle_info({:basic_deliver, payload, meta}, state) do
     result = process_payload(meta.routing_key, payload, state.secret)
-    acknowledge(result, state.channel, meta.delivery_tag)
-    {:noreply, state}
+    attempts = DeadLetter.finish(result, state, meta, payload)
+    {:noreply, %{state | attempts: attempts}}
   end
 
   @impl true
@@ -209,16 +210,12 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
 
   defp parse_server_event(_action, _event), do: {:error, :invalid_event}
 
-  defp acknowledge(:ack, channel, delivery_tag), do: AMQP.Basic.ack(channel, delivery_tag)
-
-  defp acknowledge(:retry, channel, delivery_tag),
-    do: AMQP.Basic.nack(channel, delivery_tag, requeue: true)
-
   defp connect(state) do
     with {:ok, connection} <- RabbitMQ.open(state.url),
          {:ok, channel} <- AMQP.Channel.open(connection),
          :ok <- AMQP.Exchange.declare(channel, state.exchange, :topic, durable: true),
          {:ok, _} <- AMQP.Queue.declare(channel, state.queue, durable: true),
+         :ok <- DeadLetter.declare(channel, state.queue),
          :ok <- bind(channel, state),
          {:ok, _} <- AMQP.Basic.consume(channel, state.queue) do
       {:ok, connection, channel}
