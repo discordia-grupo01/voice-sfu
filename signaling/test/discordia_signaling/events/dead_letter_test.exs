@@ -57,6 +57,66 @@ defmodule DiscordiaSignaling.Events.DeadLetterTest do
     end
   end
 
+  describe "finish/4 with a stand-in channel" do
+    defmodule StandInChannel do
+      use GenServer
+
+      def start_link(test_pid), do: GenServer.start_link(__MODULE__, test_pid)
+
+      @impl true
+      def init(test_pid), do: {:ok, test_pid}
+
+      @impl true
+      def handle_call({:call, method, _content, _sender}, _from, test_pid) do
+        send(test_pid, {:amqp_method, method})
+        {:reply, :ok, test_pid}
+      end
+    end
+
+    setup do
+      Application.put_env(:discordia_signaling, :event_retry_delay_ms, 1)
+      {:ok, pid} = StandInChannel.start_link(self())
+      state = %{channel: %AMQP.Channel{pid: pid}, connection: nil, queue: "q", attempts: %{}}
+      {:ok, state: state}
+    end
+
+    test "an acknowledged event is confirmed and forgotten", %{state: state} do
+      key = DeadLetter.identity("k", "payload")
+      state = %{state | attempts: %{key => 3}}
+
+      attempts = DeadLetter.finish(:ack, state, %{delivery_tag: 7, routing_key: "k"}, "payload")
+
+      assert_receive {:amqp_method, {:"basic.ack", 7, false}}
+      assert attempts == %{}
+    end
+
+    test "a failed event goes back to its queue and its attempts are counted", %{state: state} do
+      meta = %{delivery_tag: 8, routing_key: "k"}
+
+      first = DeadLetter.finish(:retry, state, meta, "payload")
+      assert_receive {:amqp_method, {:"basic.nack", 8, false, true}}
+      assert first == %{DeadLetter.identity("k", "payload") => 1}
+
+      second = DeadLetter.finish(:retry, %{state | attempts: first}, meta, "payload")
+      assert_receive {:amqp_method, {:"basic.nack", 8, false, true}}
+      assert second == %{DeadLetter.identity("k", "payload") => 2}
+    end
+
+    test "the counters are cleared when too many events are being tracked", %{state: state} do
+      crowded = Map.new(1..1_024, fn n -> {"other-#{n}", 1} end)
+
+      attempts =
+        DeadLetter.finish(
+          :retry,
+          %{state | attempts: crowded},
+          %{delivery_tag: 9, routing_key: "k"},
+          "payload"
+        )
+
+      assert attempts == %{DeadLetter.identity("k", "payload") => 1}
+    end
+  end
+
   test "the dead letter queue of a queue is named after it and the exchange is shared" do
     assert DeadLetter.queue_for("voice.signaling") == "voice.signaling.dlq"
     assert DeadLetter.exchange() == "discordia.dlx"
