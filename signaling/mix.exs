@@ -16,7 +16,7 @@ defmodule DiscordiaSignaling.MixProject do
   def application do
     [
       mod: {DiscordiaSignaling.Application, []},
-      extra_applications: [:inets, :logger, :runtime_tools]
+      extra_applications: [:inets, :logger, :runtime_tools, :ssl]
     ]
   end
 
@@ -38,7 +38,9 @@ defmodule DiscordiaSignaling.MixProject do
       {:amqp, "~> 4.0"},
       {:opentelemetry_api, "~> 1.4"},
       {:opentelemetry, "~> 1.5"},
-      {:opentelemetry_exporter, "~> 1.8"}
+      {:opentelemetry_exporter, "~> 1.8"},
+      {:opentelemetry_api_experimental, "~> 0.6"},
+      {:opentelemetry_experimental, "~> 0.6"}
     ]
   end
 end

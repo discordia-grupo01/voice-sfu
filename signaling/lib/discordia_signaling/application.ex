@@ -8,14 +8,11 @@ defmodule DiscordiaSignaling.Application do
   def start(_type, _args) do
     DiscordiaSignaling.Log.Telemetry.attach()
     DiscordiaSignaling.Tracing.attach()
-
-    Logger.info("service_started",
-      version: to_string(Application.spec(:discordia_signaling, :vsn)),
-      log_level: Logger.level()
-    )
+    DiscordiaSignaling.Metrics.setup()
 
     children =
       [
+        log_shipper_child(),
         {Phoenix.PubSub, name: DiscordiaSignaling.PubSub},
         DiscordiaSignaling.Voice.VoicePresencePublisher,
         DiscordiaSignaling.Voice.VoiceSessionRegistry,
@@ -31,7 +28,22 @@ defmodule DiscordiaSignaling.Application do
       |> Enum.reject(&is_nil/1)
 
     opts = [strategy: :one_for_one, name: DiscordiaSignaling.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, supervisor} <- Supervisor.start_link(children, opts) do
+      Logger.info("service_started",
+        version: to_string(Application.spec(:discordia_signaling, :vsn)),
+        log_level: Logger.level()
+      )
+
+      {:ok, supervisor}
+    end
+  end
+
+  defp log_shipper_child do
+    case Application.get_env(:discordia_signaling, :log_shipper) do
+      nil -> nil
+      options -> {DiscordiaSignaling.Log.Shipper, options}
+    end
   end
 
   @impl true
