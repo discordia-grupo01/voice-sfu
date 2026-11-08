@@ -26,12 +26,50 @@ config :opentelemetry,
 
 if config_env() == :test do
   config :opentelemetry, traces_exporter: :none, processors: [{:otel_simple_processor, %{}}]
+
+  config :opentelemetry_experimental,
+    readers: [
+      %{
+        module: :otel_metric_reader,
+        config: %{
+          exporter: {:otel_metric_exporter_pid, {:otel_metric, :discordia_signaling_metric_sink}},
+          default_temporality_mapping: %{
+            counter: :temporality_delta,
+            observable_counter: :temporality_delta,
+            histogram: :temporality_delta,
+            observable_gauge: :temporality_cumulative,
+            updown_counter: :temporality_cumulative,
+            observable_updowncounter: :temporality_cumulative
+          }
+        }
+      }
+    ]
 else
   if otlp_endpoint == "" do
     config :opentelemetry, traces_exporter: :none
+    config :opentelemetry_experimental, readers: []
   else
     config :opentelemetry, traces_exporter: :otlp
     config :opentelemetry_exporter, otlp_protocol: :http_protobuf
+
+    config :opentelemetry_experimental,
+      readers: [
+        %{
+          module: :otel_metric_reader,
+          config: %{
+            exporter: {:otel_exporter_metrics_otlp, %{}},
+            export_interval_ms: 60_000,
+            default_temporality_mapping: %{
+              counter: :temporality_delta,
+              observable_counter: :temporality_delta,
+              histogram: :temporality_delta,
+              observable_gauge: :temporality_cumulative,
+              updown_counter: :temporality_cumulative,
+              observable_updowncounter: :temporality_cumulative
+            }
+          }
+        }
+      ]
   end
 end
 

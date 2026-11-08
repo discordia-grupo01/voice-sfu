@@ -8,6 +8,7 @@ defmodule DiscordiaSignaling.Application do
   def start(_type, _args) do
     DiscordiaSignaling.Log.Telemetry.attach()
     DiscordiaSignaling.Tracing.attach()
+    DiscordiaSignaling.Metrics.setup()
 
     Logger.info("service_started",
       version: to_string(Application.spec(:discordia_signaling, :vsn)),
