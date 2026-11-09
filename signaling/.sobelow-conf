@@ -1,0 +1,13 @@
+[
+  verbose: false,
+  private: false,
+  skip: false,
+  router: "lib/discordia_signaling_web/router.ex",
+  exit: "Low",
+  format: "txt",
+  out: nil,
+  threshold: "Low",
+  ignore: ["Config.CSWH"],
+  ignore_files: [],
+  version: false
+]
