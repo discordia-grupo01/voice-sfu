@@ -6,8 +6,13 @@ defmodule DiscordiaSignaling.Application do
 
   @impl true
   def start(_type, _args) do
+    DiscordiaSignaling.Log.Telemetry.attach()
+    DiscordiaSignaling.Tracing.attach()
+    DiscordiaSignaling.Metrics.setup()
+
     children =
       [
+        log_shipper_child(),
         {Phoenix.PubSub, name: DiscordiaSignaling.PubSub},
         DiscordiaSignaling.Voice.VoicePresencePublisher,
         DiscordiaSignaling.Voice.VoiceSessionRegistry,
@@ -23,7 +28,22 @@ defmodule DiscordiaSignaling.Application do
       |> Enum.reject(&is_nil/1)
 
     opts = [strategy: :one_for_one, name: DiscordiaSignaling.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, supervisor} <- Supervisor.start_link(children, opts) do
+      Logger.info("service_started",
+        version: to_string(Application.spec(:discordia_signaling, :vsn)),
+        log_level: Logger.level()
+      )
+
+      {:ok, supervisor}
+    end
+  end
+
+  defp log_shipper_child do
+    case Application.get_env(:discordia_signaling, :log_shipper) do
+      nil -> nil
+      options -> {DiscordiaSignaling.Log.Shipper, options}
+    end
   end
 
   @impl true
@@ -68,9 +88,9 @@ defmodule DiscordiaSignaling.Application do
         nil
 
       suspension_secret() == "" ->
-        Logger.error(
-          "voice_suspension_consumer_disabled: ADMIN_EVENTS_HMAC_SECRET is empty, " <>
-            "admin.user_suspended events will not be consumed"
+        Logger.error("voice_suspension_consumer_disabled",
+          reason: "empty_admin_events_hmac_secret",
+          hint: "admin.user_suspended events will not be consumed"
         )
 
         nil

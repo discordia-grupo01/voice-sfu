@@ -21,6 +21,10 @@ paths:
   /readyz:
     get:
       summary: Readiness check
+      description: >-
+        Checks LiveKit (an authenticated ListRooms call) and, when
+        VOICE_AUTHZ_MODE is servers_api, the liveness of the servers service.
+        It never shares logic with /livez.
       responses:
         "200":
           description: Service dependencies are ready
@@ -31,9 +35,22 @@ paths:
                 properties:
                   status:
                     type: string
-                    example: ok
+                    example: ready
         "503":
-          description: Dependencies unavailable
+          description: One or more dependencies are unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: unavailable
+                  failed:
+                    type: array
+                    items:
+                      type: string
+                      enum: [livekit, servers]
 
   /api/voice/session:
     delete:

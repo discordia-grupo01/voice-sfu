@@ -13,6 +13,8 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
   require Logger
 
   alias DiscordiaSignaling.Events.RabbitMQ
+  alias DiscordiaSignaling.Log
+  alias DiscordiaSignaling.Tracing
   alias DiscordiaSignaling.Voice.{PrivateCall, VoiceSessionRegistry}
 
   @routing_keys ["voice.participant_joined", "voice.participant_left", "voice.private_call"]
@@ -46,7 +48,7 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
 
       {:error, reason} ->
         Logger.warning("voice_presence_consumer_connect_failed",
-          reason: inspect(reason),
+          reason: Log.reason(reason),
           exchange: state.exchange
         )
 
@@ -57,15 +59,18 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
 
   @impl true
   def handle_info({:DOWN, _ref, :process, _pid, reason}, state) do
-    Logger.warning("voice_presence_consumer_connection_down", reason: inspect(reason))
+    Logger.warning("voice_presence_consumer_connection_down", reason: Log.reason(reason))
     send(self(), :connect)
     {:noreply, %{state | connection: nil, channel: nil}}
   end
 
   @impl true
   def handle_info({:basic_deliver, payload, meta}, state) do
-    process_payload(meta.routing_key, payload)
-    AMQP.Basic.ack(state.channel, meta.delivery_tag)
+    Tracing.consumer_span(meta, state.queue, fn ->
+      process_payload(meta.routing_key, payload)
+      AMQP.Basic.ack(state.channel, meta.delivery_tag)
+    end)
+
     {:noreply, state}
   end
 

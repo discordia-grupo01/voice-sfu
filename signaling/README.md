@@ -9,7 +9,26 @@ mix deps.get
 mix phx.server
 ```
 
-The service listens on `http://localhost:4000`. Health check: `GET /livez`. Phoenix channels use `/socket` and the `voice:*` and `voice_server:*` topics.
+The service listens on `http://localhost:4000`. Phoenix channels use `/socket` and the `voice:*` and `voice_server:*` topics.
+
+### Health checks
+
+`GET /livez` and `GET /readyz` are different actions and share no logic.
+
+- `/livez` only confirms the process answers HTTP. It never calls LiveKit, `servers` or RabbitMQ, so a failing dependency never makes the platform restart a healthy process.
+- `/readyz` checks what voice needs to do its job and answers `503` with the names that failed (`{"status":"unavailable","failed":["livekit"]}`):
+  - `livekit`: an authenticated `ListRooms` call against the LiveKit API, which also proves the API key and secret are valid.
+  - `servers`: `GET <SERVERS_URL>/livez`. Only checked when `VOICE_AUTHZ_MODE=servers_api`, because that is the only mode where joining a room goes through `servers`.
+
+  Each check gives up after 1.5 s, so the whole call stays under the 2 s timeout of the Fly.io health check. RabbitMQ is not checked: the consumers reconnect by themselves and token issuing does not need the broker.
+
+### Logs
+
+Every line is one JSON object on stdout with `time`, `level` (`debug`, `info`, `warning` or `error`), `service` (`voice-sfu`), `message` and the metadata listed in `config/config.exs`. The level is set with `LOG_LEVEL` (see below).
+
+- Requests are logged as `http_request` with the route pattern (`/api/voice/calls/:id/accept`), never the real path or the query string, together with `method`, `status`, `duration_ms` and `user_id`. `/livez` and `/readyz` are `debug` unless they fail.
+- Socket and channel events (`socket_connected`, `channel_joined`, `channel_event`) log the result, the topic and the event name, never the ticket or the payload.
+- The formatter replaces any field named `content`, `ticket`, `token`, `jwt`, `authorization`, `password` or `secret` with `[FILTERED]`, and errors are reduced to their module and atom reason (`DiscordiaSignaling.Log.reason/1`).
 
 Private one-to-one calls use `POST /api/voice/calls` with
 `recipient_id` and `conversation_id`. Signaling asks Messaging to authorize
@@ -25,6 +44,37 @@ include the LiveKit `token` and `url` each participant needs to join the room.
 the screen-only companion token (`<user_id>:screen`) the Android app uses to
 share its screen.
 
+## Trazas y métricas (OpenTelemetry)
+
+El servicio manda trazas y métricas a cualquier backend que hable OTLP por HTTP (New Relic, Grafana Cloud, un colector propio). Está **apagado por defecto**: sin `OTEL_EXPORTER_OTLP_ENDPOINT` no se exporta nada y el servicio funciona igual.
+
+| Variable | Para qué |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | URL base del backend. En New Relic (cuenta de EE. UU.): `https://otlp.nr-data.net` |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Credenciales, por ejemplo `api-key=<clave de licencia de ingesta>`. Es un secreto: va solo en las variables de entorno del despliegue, nunca en el repositorio |
+| `OTEL_SERVICE_NAME` | Nombre con el que aparece el servicio (por defecto `voice-sfu`) |
+
+- **Pedidos HTTP:** un span por pedido (`DiscordiaSignaling.Tracing`), llamado como el patrón de la ruta (`POST /api/voice/calls/:id/accept`). Solo guarda `http.request.method`, `http.route` y `http.response.status_code`: nunca el path real, la query string, headers ni la IP. Si el pedido trae un `traceparent`, la traza continúa desde ahí.
+- **Eventos de RabbitMQ:** los consumidores de silenciados, de suspensiones y de presencia abren un span `<routing key> process` dentro de la traza que llega en la cabecera `traceparent` del mensaje; si el evento va a reintento, el span queda marcado como error. Si el mensaje no la trae, empieza una traza nueva.
+- **Métricas HTTP:** el histograma `http.server.request.duration` (en segundos, temporalidad delta, exportado cada 60 s) lo registra `DiscordiaSignaling.Metrics` al terminar cada pedido, con `http.request.method`, `http.route` y `http.response.status_code`; si el estado es 5xx suma `error.type`. De ahí salen el throughput, la latencia y la tasa de errores del resumen de APM en New Relic. Los pedidos a rutas inexistentes se agrupan en la ruta `unmatched`. Nunca guarda la ruta real ni la query string.
+- **Logs:** las líneas escritas mientras corre un pedido o un evento llevan `trace_id` y `span_id`.
+- **Todavía sin instrumentar:** las llamadas a LiveKit y a `servers`, los canales de WebSocket y los eventos de presencia que publica.
+
+## Envío de logs (New Relic)
+
+Además de la salida estándar, el servicio puede enviar sus logs al Log API de New Relic. Está **apagado por defecto**: solo se activa si hay `LOG_SHIP_URL` y una clave (`LOG_SHIP_API_KEY` o la `api-key` de `OTEL_EXPORTER_OTLP_HEADERS`).
+
+| Variable | Para qué |
+|---|---|
+| `LOG_SHIP_URL` | URL del Log API. En New Relic (cuenta de EE. UU.): `https://log-api.newrelic.com/log/v1` |
+| `LOG_SHIP_API_KEY` | Opcional: clave de ingesta para `LOG_SHIP_URL`. Si no está, se toma la `api-key` de `OTEL_EXPORTER_OTLP_HEADERS`. Es un secreto: va solo en las variables de entorno del despliegue |
+
+- **Qué se envía:** las mismas entradas que salen por la salida estándar, con el mismo filtrado de datos sensibles (`token`, `ticket`, `content`, etc.) y solo los campos de metadata permitidos. `trace_id` y `span_id` viajan como `trace.id` y `span.id`, que es como New Relic enlaza cada log con su traza. El servicio se identifica con `service.name` (el valor de `OTEL_SERVICE_NAME`).
+- **Cómo se envía:** `DiscordiaSignaling.Log.Shipper` junta las entradas en lotes de hasta 200 o cada 5 segundos, las comprime en gzip y las manda por HTTPS. Los pedidos no esperan al envío.
+- **Si el backend falla:** reintenta con espera creciente (de 1 s hasta 60 s) ante errores de red, 408, 429 y 5xx; un lote rechazado de forma definitiva (por ejemplo 400 o 403) se descarta. La cola está acotada a 5.000 entradas: si se llena descarta las más viejas, para no crecer sin límite en memoria.
+- **Sin bucles:** los avisos del propio envío (`log_shipping_failed`, `log_shipping_recovered`, `log_batch_discarded`, `log_entries_dropped`) salen por la salida estándar pero nunca se reenvían.
+- **Al apagar:** intenta enviar lo que quedó pendiente durante unos 3 segundos.
+
 ## Current boundary
 
 `DiscordiaSignaling.Voice.SfuBridge` is the integration seam for the internal transport to the Go SFU. It intentionally returns `:not_configured` until the protocol, authentication, framing, retries, and backpressure policy are defined. Do not move WebRTC or RTP logic into this application.
@@ -32,6 +82,8 @@ share its screen.
 ## Environment
 
 - `PORT`: HTTP port, defaults to `4000`.
+- `LOG_LEVEL`: `debug`, `info`, `warning` or `error`. Defaults to `info` in production, `debug` in development and `warning` in tests. Any other value makes the service fail at boot.
+- `LOG_SHIP_URL` / `LOG_SHIP_API_KEY`: optional, send the logs to New Relic's Log API (see *Log shipping*). Off unless both a URL and a key are set.
 - `SECRET_KEY_BASE`: required when `MIX_ENV=prod`.
 - `SERVERS_URL`: base URL of the servers service used for voice authorization.
 - `MESSAGING_URL`: base URL of Messaging used to validate direct-call access and blocks.
