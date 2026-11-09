@@ -1,4 +1,4 @@
-.PHONY: test coverage format
+.PHONY: test coverage format sobelow
 
 test:
 	mix test --cover
@@ -8,3 +8,6 @@ coverage:
 
 format:
 	mix format
+
+sobelow:
+	mix sobelow --config

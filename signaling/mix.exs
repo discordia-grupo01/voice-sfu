@@ -40,7 +40,8 @@ defmodule DiscordiaSignaling.MixProject do
       {:opentelemetry, "~> 1.5"},
       {:opentelemetry_exporter, "~> 1.8"},
       {:opentelemetry_api_experimental, "~> 0.6"},
-      {:opentelemetry_experimental, "~> 0.6"}
+      {:opentelemetry_experimental, "~> 0.6"},
+      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false}
     ]
   end
 end

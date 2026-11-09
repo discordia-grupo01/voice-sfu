@@ -205,6 +205,19 @@ The event carries no channel ids, so the rooms come from
 version. `admin.server_deletion_requested` is not consumed here: `servers` runs
 it and publishes `servers.server_deleted`.
 
+## Análisis de seguridad
+
+```bash
+make sobelow
+```
+
+Corre [Sobelow](https://github.com/nccgroup/sobelow) (`mix sobelow --config`, configurado en
+`.sobelow-conf`), el análisis estático de seguridad para Phoenix. Falla ante cualquier hallazgo, y
+el mismo paso corre en el pipeline de GitHub, que bloquea el merge a `main`.
+
+Se ignora la regla `Config.CSWH` a propósito: el `check_origin` de los WebSockets no se pone en la
+definición de cada socket, sino en `config/runtime.exs` con la lista `PHOENIX_CHECK_ORIGINS`.
+
 ## Tests y cobertura
 
 ```bash

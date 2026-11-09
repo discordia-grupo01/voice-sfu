@@ -5,6 +5,9 @@ on:
   push:
     branches: [main, develop]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Run Tests
@@ -59,6 +62,9 @@ jobs:
 
       - name: Compilar
         run: mix compile --warnings-as-errors
+
+      - name: Analisis de seguridad (Sobelow)
+        run: mix sobelow --config
 
       - name: Ejecutar tests
         run: mix test --cover
