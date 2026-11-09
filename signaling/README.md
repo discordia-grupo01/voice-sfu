@@ -18,7 +18,11 @@ The service listens on `http://localhost:4000`. Phoenix channels use `/socket` a
 - `/livez` only confirms the process answers HTTP. It never calls LiveKit, `servers` or RabbitMQ, so a failing dependency never makes the platform restart a healthy process.
 - `/readyz` checks what voice needs to do its job and answers `503` with the names that failed (`{"status":"unavailable","failed":["livekit"]}`):
   - `livekit`: an authenticated `ListRooms` call against the LiveKit API, which also proves the API key and secret are valid.
-  - `servers`: `GET <SERVERS_URL>/livez`. Only checked when `VOICE_AUTHZ_MODE=servers_api`, because that is the only mode where joining a room goes through `servers`.
+  - `servers`: `GET <SERVERS_HEALTH_URL>` when configured, otherwise
+    `GET <SERVERS_URL>/livez`. Set `SERVERS_HEALTH_URL` to the public Kong
+    route (`https://<DOMAIN>/health/servers`) when `SERVERS_URL` points to the
+    gateway. It is only checked when `VOICE_AUTHZ_MODE=servers_api`, because
+    that is the only mode where joining a room goes through `servers`.
 
   Each check gives up after 1.5 s, so the whole call stays under the 2 s timeout of the Fly.io health check. RabbitMQ is not checked: the consumers reconnect by themselves and token issuing does not need the broker.
 
@@ -86,6 +90,8 @@ Además de la salida estándar, el servicio puede enviar sus logs al Log API de 
 - `LOG_SHIP_URL` / `LOG_SHIP_API_KEY`: optional, send the logs to New Relic's Log API (see *Log shipping*). Off unless both a URL and a key are set.
 - `SECRET_KEY_BASE`: required when `MIX_ENV=prod`.
 - `SERVERS_URL`: base URL of the servers service used for voice authorization.
+- `SERVERS_HEALTH_URL`: optional readiness URL for servers. Use the gateway
+  route when `SERVERS_URL` is a public gateway URL.
 - `MESSAGING_URL`: base URL of Messaging used to validate direct-call access and blocks.
 - `RABBITMQ_URL`: broker URL for servers events (mute, channel access revoked, channel and server deleted); when empty, the consumer is disabled.
 - `EVENTS_EXCHANGE`: RabbitMQ topic exchange, defaults to `discordia.events`.

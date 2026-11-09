@@ -120,6 +120,7 @@ config :discordia_signaling, :livekit,
 
 config :discordia_signaling, :servers,
   url: System.get_env("SERVERS_URL", "http://servers:8080"),
+  health_url: System.get_env("SERVERS_HEALTH_URL", ""),
   authz_mode: System.get_env("VOICE_AUTHZ_MODE", "deny")
 
 config :discordia_signaling, :messaging,
