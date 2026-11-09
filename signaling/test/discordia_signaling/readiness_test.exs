@@ -104,6 +104,21 @@ defmodule DiscordiaSignaling.ReadinessTest do
     assert_receive {:stub_request, "GET", "/livez", _headers}
   end
 
+  test "uses the configured public servers readiness URL" do
+    livekit([])
+    health_url = StubHTTP.start(notify: self())
+
+    Application.put_env(:discordia_signaling, :servers,
+      url: "https://discordia-g1.duckdns.org",
+      health_url: health_url,
+      authz_mode: "servers_api"
+    )
+
+    System.put_env("VOICE_AUTHZ_MODE", "servers_api")
+    assert Readiness.check() == :ok
+    assert_receive {:stub_request, "GET", "/", _headers}
+  end
+
   test "is not ready when servers answers with an error" do
     livekit([])
     servers(StubHTTP.start(status: 503))
