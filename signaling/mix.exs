@@ -36,6 +36,7 @@ defmodule DiscordiaSignaling.MixProject do
       {:jason, "~> 1.4.3"},
       {:jose, "~> 1.11.10"},
       {:amqp, "~> 4.0"},
+      {:events_contract, github: "discordia-grupo01/events-contract", tag: "v0.17.0"},
       {:opentelemetry_api, "~> 1.4"},
       {:opentelemetry, "~> 1.5"},
       {:opentelemetry_exporter, "~> 1.8"},

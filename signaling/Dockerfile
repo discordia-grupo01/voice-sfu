@@ -5,7 +5,7 @@ WORKDIR /app
 
 ENV MIX_ENV=prod
 
-RUN mix local.hex --force && mix local.rebar --force
+RUN apk add --no-cache git && mix local.hex --force && mix local.rebar --force
 
 COPY mix.exs mix.lock ./
 COPY config config
