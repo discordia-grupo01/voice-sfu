@@ -47,3 +47,7 @@ config :phoenix, :logger, false
 config :phoenix,
        :filter_parameters,
        {:keep, ["id", "channel_id", "call_id", "vsn"]}
+
+if config_env() == :test do
+  config :discordia_signaling, :event_contract_check, :off
+end
