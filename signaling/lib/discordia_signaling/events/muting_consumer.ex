@@ -10,7 +10,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Events.{DeadLetter, RabbitMQ}
+  alias DiscordiaSignaling.Events.{Contract, DeadLetter, RabbitMQ}
   alias DiscordiaSignaling.Log
   alias DiscordiaSignaling.Tracing
   alias DiscordiaSignaling.Voice.{LiveKitRoomService, ScreenShare, VoiceSessionRegistry}
@@ -105,8 +105,12 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
   @spec process_payload(String.t(), binary()) :: :ack | :retry
   def process_payload(routing_key, payload) do
     case Jason.decode(payload) do
-      {:ok, event} -> handle_event(parse_event(routing_key, event))
-      {:error, _reason} -> :ack
+      {:ok, event} ->
+        Contract.check(routing_key, event)
+        handle_event(parse_event(routing_key, event))
+
+      {:error, _reason} ->
+        :ack
     end
   end
 

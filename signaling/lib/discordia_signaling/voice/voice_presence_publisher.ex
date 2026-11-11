@@ -4,7 +4,7 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Events.RabbitMQ
+  alias DiscordiaSignaling.Events.{Contract, RabbitMQ}
   alias DiscordiaSignaling.Log
 
   @max_buffer 1_000
@@ -108,6 +108,8 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   defp normalize_error(other), do: {:error, other}
 
   defp do_publish(chan, event) do
+    Contract.check(event["event_type"], event)
+
     AMQP.Basic.publish(
       chan,
       exchange(),

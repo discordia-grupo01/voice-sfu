@@ -12,7 +12,7 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Events.RabbitMQ
+  alias DiscordiaSignaling.Events.{Contract, RabbitMQ}
   alias DiscordiaSignaling.Log
   alias DiscordiaSignaling.Tracing
   alias DiscordiaSignaling.Voice.{PrivateCall, VoiceSessionRegistry}
@@ -95,6 +95,7 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
          true <- is_map(event),
          true <- routing_key in @routing_keys do
       event = Map.put(event, "event_type", routing_key)
+      Contract.check(routing_key, event)
 
       if routing_key == "voice.private_call" do
         PrivateCall.replicate_event(event)

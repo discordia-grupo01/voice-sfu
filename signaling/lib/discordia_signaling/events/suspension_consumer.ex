@@ -24,7 +24,14 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Events.{AdminSignature, DeadLetter, RabbitMQ, SuspensionVersions}
+  alias DiscordiaSignaling.Events.{
+    AdminSignature,
+    Contract,
+    DeadLetter,
+    RabbitMQ,
+    SuspensionVersions
+  }
+
   alias DiscordiaSignaling.Log
   alias DiscordiaSignaling.Tracing
   alias DiscordiaSignaling.Voice.{MembershipCache, VoiceSessionRegistry}
@@ -119,6 +126,8 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
   end
 
   defp handle_event(routing_key, event, secret) do
+    Contract.check(routing_key, event)
+
     if AdminSignature.verify(routing_key, event, secret) do
       routing_key |> parse_event(event) |> apply_event()
     else
