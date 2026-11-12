@@ -8,11 +8,23 @@ defmodule DiscordiaSignalingWeb.VoiceSessionController do
     try do
       user_id = conn.assigns.current_user_id
       authorization_header = List.first(Plug.Conn.get_req_header(conn, "authorization"))
+      room_name = "voice:" <> channel_id
 
-      with {:ok, room_name} <- VoiceAccess.authorize(user_id, channel_id, authorization_header),
-           :ok <- VoiceSessionRegistry.leave(user_id, room_name) do
-        Plug.Conn.send_resp(conn, 204, "")
-      else
+      result =
+        if is_binary(user_id) and user_id != "" and
+             VoiceSessionRegistry.active_room(user_id) == room_name do
+          VoiceSessionRegistry.leave(user_id, room_name)
+        else
+          with {:ok, authorized_room} <-
+                 VoiceAccess.authorize(user_id, channel_id, authorization_header) do
+            VoiceSessionRegistry.leave(user_id, authorized_room)
+          end
+        end
+
+      case result do
+        :ok ->
+          Plug.Conn.send_resp(conn, 204, "")
+
         {:error, :not_configured} ->
           conn |> Plug.Conn.put_status(503) |> json(%{error: "voice_not_configured"})
 

@@ -45,6 +45,19 @@ defmodule DiscordiaSignalingWeb.VoiceSessionControllerTest do
     assert response.status == 204
   end
 
+  test "leaves an active session without reauthorizing the channel" do
+    user_id = "session-controller-user"
+    room_name = "voice:" <> @channel_id
+    VoiceSessionRegistry.switch(user_id, room_name)
+    System.put_env("VOICE_AUTHZ_MODE", "deny")
+
+    response =
+      VoiceSessionController.delete(authenticated_conn(user_id), %{"channel_id" => @channel_id})
+
+    assert response.status == 204
+    assert VoiceSessionRegistry.active_room(user_id) == nil
+  end
+
   test "returns bad request when channel_id is missing" do
     response = VoiceSessionController.delete(authenticated_conn("session-controller-user"), %{})
 
