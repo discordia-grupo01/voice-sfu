@@ -101,7 +101,13 @@ Además de la salida estándar, el servicio puede enviar sus logs al Log API de 
   when running multiple local replicas. Do not reuse the same value across
   simultaneously running replicas.
 - `ADMIN_EVENTS_HMAC_SECRET`: secret shared with admin to verify the signature of `admin.user_suspended`, `admin.server_suspended` and `admin.server_reactivated`. If empty, the suspension consumer does not start (an error is logged) and the rest of the service keeps running.
-- `VOICE_AUTHZ_MODE`: `servers_api` for membership and `VIEW_CHANNELS` checks; `allow_authenticated` is local-only.
+- `VOICE_AUTHZ_MODE`: `servers_api` for the current synchronous authorization,
+  `replica` to authorize from the local PostgreSQL projection, and
+  `replica_shadow` to compare the projection while returning the `servers` result.
+  `allow_authenticated` is local-only.
+- `VOICE_REPLICA_DATABASE_URL`: PostgreSQL URL for the local authorization
+  projection. The signaling process creates its `voice_replica_*` tables on
+  connection and never writes the `servers` database.
 - `PHOENIX_CHECK_ORIGINS`: comma-separated browser origins allowed to open
   Phoenix sockets. Local defaults are `http://localhost:3000` and
   `http://127.0.0.1:3000`; production must include the exact HTTPS origin of

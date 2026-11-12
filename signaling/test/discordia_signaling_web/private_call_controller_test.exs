@@ -28,6 +28,62 @@ defmodule DiscordiaSignalingWeb.PrivateCallControllerTest do
     :ok
   end
 
+  test "creates a private call and returns its public payload" do
+    conn =
+      request("caller-create")
+      |> Plug.Conn.put_req_header("authorization", "Bearer token")
+
+    conn =
+      PrivateCallController.create(conn, %{
+        "recipient_id" => "recipient-create",
+        "conversation_id" => "conversation-create"
+      })
+
+    assert conn.status == 201
+    response = Jason.decode!(conn.resp_body)
+    assert response["caller_id"] == "caller-create"
+    assert response["recipient_id"] == "recipient-create"
+    assert response["conversation_id"] == "conversation-create"
+    assert response["status"] == "ringing"
+  end
+
+  test "rejects malformed create input" do
+    conn = PrivateCallController.create(request("caller-invalid"), %{})
+
+    assert conn.status == 400
+    assert Jason.decode!(conn.resp_body) == %{"error" => "invalid_input"}
+  end
+
+  test "rejects and finishes calls through their controller actions" do
+    rejected = start_call("caller-reject", "recipient-reject")
+
+    reject_response =
+      PrivateCallController.reject(request("recipient-reject"), %{"id" => rejected.id})
+
+    assert reject_response.status == 204
+
+    finished = start_call("caller-finish", "recipient-finish")
+    assert {:ok, _accepted} = PrivateCall.accept(finished.id, "recipient-finish", "Bearer token")
+
+    finish_response =
+      PrivateCallController.finish(request("caller-finish"), %{"id" => finished.id})
+
+    assert finish_response.status == 204
+  end
+
+  test "maps unknown action targets to not found" do
+    reject_response =
+      PrivateCallController.reject(request("caller-missing"), %{"id" => "missing-reject"})
+
+    finish_response =
+      PrivateCallController.finish(request("caller-missing"), %{"id" => "missing-finish"})
+
+    assert reject_response.status == 404
+    assert finish_response.status == 404
+    assert Jason.decode!(reject_response.resp_body) == %{"error" => "call_not_found"}
+    assert Jason.decode!(finish_response.resp_body) == %{"error" => "call_not_found"}
+  end
+
   describe "screen_token/2" do
     test "returns the companion token of an active call" do
       call = start_call("caller-ctl-1", "recipient-ctl-1")
