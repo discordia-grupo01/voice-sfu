@@ -91,6 +91,25 @@ defmodule DiscordiaSignaling.Events.ReplicaConsumerTest do
     assert :ack = ReplicaConsumer.process_payload("servers.role_updated", valid_payload())
   end
 
+  test "acknowledges a profile backfill event" do
+    use_store(AppliedStore)
+
+    payload =
+      Jason.encode!(%{
+        "event_id" => "profile-event",
+        "occurred_at" => "2026-11-01T10:00:00Z",
+        "user_id" => "699ee337-a4cd-40de-89a4-a0c66a67d25f",
+        "version" => 1,
+        "name" => "Member",
+        "avatar_url" => "",
+        "description" => "",
+        "status_text" => "",
+        "status_emoji" => ""
+      })
+
+    assert :ack = ReplicaConsumer.process_payload("users.profile_updated", payload)
+  end
+
   test "acknowledges a stale event" do
     use_store(StaleStore)
 
