@@ -18,9 +18,11 @@ defmodule DiscordiaSignaling.Application do
         DiscordiaSignaling.Voice.VoiceSessionRegistry,
         DiscordiaSignaling.Voice.PrivateCall,
         DiscordiaSignaling.Voice.MembershipCache,
+        DiscordiaSignaling.Voice.ReplicaStore,
         DiscordiaSignaling.Voice.VoicePresenceReconciler,
         presence_consumer(),
         event_consumer(),
+        replica_consumer(),
         suspension_versions(),
         suspension_consumer(),
         DiscordiaSignalingWeb.Endpoint
@@ -61,6 +63,18 @@ defmodule DiscordiaSignaling.Application do
     else
       {DiscordiaSignaling.Events.MutingConsumer,
        Keyword.put(config, :queue, queue_name(config, "commands"))}
+    end
+  end
+
+  defp replica_consumer do
+    config = Application.get_env(:discordia_signaling, :events, [])
+    url = Keyword.get(config, :rabbitmq_url, "")
+
+    if url == "" do
+      nil
+    else
+      {DiscordiaSignaling.Events.ReplicaConsumer,
+       Keyword.put(config, :queue, queue_name(config, "replica"))}
     end
   end
 

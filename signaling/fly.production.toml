@@ -7,7 +7,7 @@ primary_region = "gru"
 [env]
   MIX_ENV = "prod"
   PORT = "4000"
-  VOICE_AUTHZ_MODE = "servers_api"
+  VOICE_AUTHZ_MODE = "replica"
   EVENTS_EXCHANGE = "discordia.events"
   VOICE_EVENTS_QUEUE = "voice.signaling"
   VOICE_INSTANCE_ID = "local-signaling-1"
