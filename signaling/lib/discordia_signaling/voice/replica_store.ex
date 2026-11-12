@@ -223,7 +223,7 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
       query_ok(
         tx,
         "INSERT INTO voice_replica_roles (role_id, server_id, permissions, is_everyone) VALUES ($1,$2,$3::jsonb,$4) ON CONFLICT (role_id) DO UPDATE SET server_id=EXCLUDED.server_id, permissions=EXCLUDED.permissions, is_everyone=EXCLUDED.is_everyone",
-        [e["role_id"], e["server_id"], Jason.encode!(e["permissions"]), e["is_everyone"]]
+        [e["role_id"], e["server_id"], e["permissions"], e["is_everyone"]]
       )
 
   defp write(tx, :role_deleted, e),
@@ -234,7 +234,7 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
       query_ok(
         tx,
         "INSERT INTO voice_replica_members (server_id,user_id,role_ids) VALUES ($1,$2,$3::jsonb) ON CONFLICT (server_id,user_id) DO UPDATE SET role_ids=EXCLUDED.role_ids",
-        [e["server_id"], e["user_id"], Jason.encode!(e["role_ids"])]
+        [e["server_id"], e["user_id"], e["role_ids"]]
       )
 
   defp write(tx, :member_left, e),
@@ -303,8 +303,8 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
                [
                  e["channel_id"],
                  override["role_id"],
-                 Jason.encode!(override["allow"]),
-                 Jason.encode!(override["deny"])
+                 override["allow"],
+                 override["deny"]
                ]
              ) do
           :ok -> {:cont, :ok}

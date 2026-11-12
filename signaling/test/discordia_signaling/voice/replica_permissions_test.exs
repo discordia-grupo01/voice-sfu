@@ -61,4 +61,32 @@ defmodule DiscordiaSignaling.Voice.ReplicaPermissionsTest do
              "CONNECT"
            )
   end
+
+  test "accepts permissions encoded as JSON strings from the replica" do
+    roles = %{
+      "everyone" => %{"permissions" => "[\"CONNECT\"]", "is_everyone" => true}
+    }
+
+    assert ReplicaPermissions.can?(
+             ReplicaPermissions.effective(false, ["everyone"], roles, %{}),
+             "CONNECT"
+           )
+  end
+
+  test "accepts JSON strings in channel overrides" do
+    roles = %{
+      "everyone" => %{"permissions" => ["CONNECT"], "is_everyone" => true},
+      "moderator" => %{"permissions" => [], "is_everyone" => false}
+    }
+
+    overrides = %{
+      "everyone" => %{"allow" => "[\"CONNECT\"]", "deny" => "[]"},
+      "moderator" => %{"allow" => "[]", "deny" => "[\"CONNECT\"]"}
+    }
+
+    refute ReplicaPermissions.can?(
+             ReplicaPermissions.effective(false, ["everyone", "moderator"], roles, overrides),
+             "CONNECT"
+           )
+  end
 end
