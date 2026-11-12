@@ -19,6 +19,15 @@ defmodule DiscordiaSignaling.Voice.ReplicaPermissionsTest do
            )
   end
 
+  test "a regular role without CONNECT is denied" do
+    roles = %{"role" => %{"permissions" => ["VIEW_CHANNELS"], "is_everyone" => false}}
+
+    refute ReplicaPermissions.can?(
+             ReplicaPermissions.effective(false, ["role"], roles, %{}),
+             "CONNECT"
+           )
+  end
+
   test "role and channel overrides follow everyone then role precedence" do
     roles = %{
       "everyone" => %{"permissions" => ["CONNECT"], "is_everyone" => true},
@@ -32,6 +41,23 @@ defmodule DiscordiaSignaling.Voice.ReplicaPermissionsTest do
 
     assert ReplicaPermissions.can?(
              ReplicaPermissions.effective(false, ["everyone", "moderator"], roles, overrides),
+             "CONNECT"
+           )
+  end
+
+  test "a role override can restore CONNECT denied by @everyone" do
+    roles = %{
+      "everyone" => %{"permissions" => ["CONNECT"], "is_everyone" => true},
+      "member-role" => %{"permissions" => [], "is_everyone" => false}
+    }
+
+    overrides = %{
+      "everyone" => %{"allow" => [], "deny" => ["CONNECT"]},
+      "member-role" => %{"allow" => ["CONNECT"], "deny" => []}
+    }
+
+    assert ReplicaPermissions.can?(
+             ReplicaPermissions.effective(false, ["everyone", "member-role"], roles, overrides),
              "CONNECT"
            )
   end

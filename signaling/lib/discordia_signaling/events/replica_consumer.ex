@@ -88,7 +88,7 @@ defmodule DiscordiaSignaling.Events.ReplicaConsumer do
     with {:ok, event} <- Jason.decode(payload),
          :ok <- Contract.check(routing_key, event),
          :ok <- validate(routing_key, event) do
-      case ReplicaStore.apply_event(routing_key, event) do
+      case replica_store().apply_event(routing_key, event) do
         {:ok, :invalid} -> :invalid
         {:ok, _} -> :ack
         :stale -> :ack
@@ -104,11 +104,16 @@ defmodule DiscordiaSignaling.Events.ReplicaConsumer do
 
   defp validate(routing_key, event) do
     if routing_key in @routing_keys and is_binary(event["occurred_at"]) and
-         is_binary(event["event_id"]) and event["event_id"] != "" do
+         is_binary(event["event_id"]) and event["event_id"] != "" and
+         match?({:ok, _, _}, DateTime.from_iso8601(event["occurred_at"])) do
       :ok
     else
       {:error, :invalid_event}
     end
+  end
+
+  defp replica_store do
+    Application.get_env(:discordia_signaling, :replica_store, ReplicaStore)
   end
 
   defp connect(state) do
