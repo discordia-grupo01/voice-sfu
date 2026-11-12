@@ -4,7 +4,7 @@ defmodule DiscordiaSignaling.Voice.ReplicaPermissions do
   def effective(owner?, role_ids, roles, overrides) do
     base =
       role_ids
-      |> Enum.flat_map(fn id -> get_in(roles, [id, "permissions"]) || [] end)
+      |> Enum.flat_map(fn id -> normalize_permissions(get_in(roles, [id, "permissions"])) end)
       |> MapSet.new()
 
     if owner? or MapSet.member?(base, "ADMINISTRATOR") do
@@ -26,16 +26,35 @@ defmodule DiscordiaSignaling.Voice.ReplicaPermissions do
     {allow, deny} =
       Enum.reduce(other, {[], []}, fn id, {allows, denies} ->
         case Map.get(overrides, id) do
-          %{"allow" => a, "deny" => d} -> {a ++ allows, d ++ denies}
-          _ -> {allows, denies}
+          %{"allow" => allow, "deny" => deny} ->
+            {normalize_permissions(allow) ++ allows, normalize_permissions(deny) ++ denies}
+
+          _ ->
+            {allows, denies}
         end
       end)
 
     after_everyone |> MapSet.difference(MapSet.new(deny)) |> MapSet.union(MapSet.new(allow))
   end
 
-  defp apply_one(set, %{"allow" => allow, "deny" => deny}),
-    do: set |> MapSet.difference(MapSet.new(deny)) |> MapSet.union(MapSet.new(allow))
+  defp apply_one(set, %{"allow" => allow, "deny" => deny}) do
+    set
+    |> MapSet.difference(MapSet.new(normalize_permissions(deny)))
+    |> MapSet.union(MapSet.new(normalize_permissions(allow)))
+  end
 
   defp apply_one(set, _), do: set
+
+  defp normalize_permissions(permissions) when is_list(permissions) do
+    Enum.filter(permissions, &is_binary/1)
+  end
+
+  defp normalize_permissions(permissions) when is_binary(permissions) do
+    case Jason.decode(permissions) do
+      {:ok, decoded} -> normalize_permissions(decoded)
+      _ -> []
+    end
+  end
+
+  defp normalize_permissions(_permissions), do: []
 end
