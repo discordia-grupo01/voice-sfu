@@ -7,6 +7,18 @@ defmodule DiscordiaSignaling.Events.ReplicaConsumerTest do
     def apply_event(_routing_key, _event), do: {:error, :unavailable}
   end
 
+  defmodule AppliedStore do
+    def apply_event(_routing_key, _event), do: {:ok, :applied}
+  end
+
+  defmodule StaleStore do
+    def apply_event(_routing_key, _event), do: :stale
+  end
+
+  defmodule InvalidStore do
+    def apply_event(_routing_key, _event), do: {:ok, :invalid}
+  end
+
   setup do
     previous = Application.get_env(:discordia_signaling, :replica_store)
     Application.put_env(:discordia_signaling, :replica_store, UnavailableStore)
@@ -46,6 +58,19 @@ defmodule DiscordiaSignaling.Events.ReplicaConsumerTest do
     assert :invalid = ReplicaConsumer.process_payload("servers.role_updated", payload)
   end
 
+  test "rejects events without an event id" do
+    payload =
+      Jason.encode!(%{
+        "occurred_at" => "2026-11-01T10:00:00Z",
+        "server_id" => "server-1",
+        "role_id" => "role-1",
+        "permissions" => ["CONNECT"],
+        "is_everyone" => false
+      })
+
+    assert :invalid = ReplicaConsumer.process_payload("servers.role_updated", payload)
+  end
+
   test "does not acknowledge a valid event while the replica database is unavailable" do
     payload =
       Jason.encode!(%{
@@ -59,4 +84,35 @@ defmodule DiscordiaSignaling.Events.ReplicaConsumerTest do
 
     assert :database_retry = ReplicaConsumer.process_payload("servers.role_updated", payload)
   end
+
+  test "acknowledges an applied event" do
+    use_store(AppliedStore)
+
+    assert :ack = ReplicaConsumer.process_payload("servers.role_updated", valid_payload())
+  end
+
+  test "acknowledges a stale event" do
+    use_store(StaleStore)
+
+    assert :ack = ReplicaConsumer.process_payload("servers.role_updated", valid_payload())
+  end
+
+  test "sends an invalid replica result to the invalid-event path" do
+    use_store(InvalidStore)
+
+    assert :invalid = ReplicaConsumer.process_payload("servers.role_updated", valid_payload())
+  end
+
+  defp valid_payload do
+    Jason.encode!(%{
+      "event_id" => "event-valid",
+      "occurred_at" => "2026-11-01T10:00:00Z",
+      "server_id" => "server-1",
+      "role_id" => "role-1",
+      "permissions" => ["CONNECT"],
+      "is_everyone" => false
+    })
+  end
+
+  defp use_store(store), do: Application.put_env(:discordia_signaling, :replica_store, store)
 end
