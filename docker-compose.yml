@@ -15,6 +15,7 @@ services:
       MESSAGING_URL: http://messaging:4000
       SERVERS_URL: http://host.docker.internal:8080
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      VOICE_REPLICA_DATABASE_URL: postgres://discordia:discordia@db:5432/discordia_voice
       EVENTS_EXCHANGE: discordia.events
       JWT_SECRET: ${JWT_SECRET:-clave_de_ejemplo_de_al_menos_64_caracteres_de_largo_para_pruebas_locales}
       SECRET_KEY_BASE: ${SECRET:-clave_de_ejemplo_de_al_menos_64_caracteres_de_largo_para_pruebas_locales}
@@ -22,6 +23,8 @@ services:
       livekit:
         condition: service_started
       rabbitmq:
+        condition: service_healthy
+      db:
         condition: service_healthy
 
   livekit:
