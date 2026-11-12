@@ -1,6 +1,7 @@
 defmodule DiscordiaSignaling.Readiness do
   alias DiscordiaSignaling.Voice.LiveKitRoomService
   alias DiscordiaSignaling.Voice.VoiceAccess
+  alias DiscordiaSignaling.Voice.ReplicaStore
 
   @check_timeout_ms 1_500
 
@@ -30,7 +31,11 @@ defmodule DiscordiaSignaling.Readiness do
     if VoiceAccess.authz_mode() == "servers_api" do
       base ++ [{"servers", &servers_reachable/0}]
     else
-      base
+      if VoiceAccess.authz_mode() in ["replica", "replica_shadow"] do
+        base ++ [{"replica_database", &ReplicaStore.ping/0}]
+      else
+        base
+      end
     end
   end
 

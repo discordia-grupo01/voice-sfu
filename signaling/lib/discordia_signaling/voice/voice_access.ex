@@ -1,4 +1,6 @@
 defmodule DiscordiaSignaling.Voice.VoiceAccess do
+  require Logger
+
   @moduledoc """
   Authorization boundary for LiveKit room access.
 
@@ -8,6 +10,7 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
   """
 
   @uuid_pattern ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  alias DiscordiaSignaling.Voice.{ReplicaPermissions, ReplicaStore}
 
   @spec authorize(String.t(), String.t(), String.t() | nil) ::
           {:ok, String.t()} | {:error, atom()}
@@ -51,6 +54,9 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
             error ->
               error
           end
+
+        mode when mode in ["replica", "replica_shadow"] ->
+          authorize_with_replica(user_id, channel_id, mode, authorization_header)
 
         _ ->
           {:error, :not_configured}
@@ -108,6 +114,69 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
     end
   end
 
+  defp authorize_with_replica(user_id, channel_id, "replica", _authorization_header) do
+    case ReplicaStore.authorize(channel_id, user_id) do
+      {:ok, [server_id, "voice", owner_id, role_ids, roles, overrides, muted, name]} ->
+        permissions =
+          ReplicaPermissions.effective(
+            owner_id == user_id,
+            decode_json(role_ids, []),
+            decode_json(roles, %{}),
+            decode_json(overrides, %{})
+          )
+
+        if ReplicaPermissions.can?(permissions, "CONNECT") do
+          {:ok, room_name(channel_id), profile_name(name, user_id), muted == true, server_id}
+        else
+          {:error, :forbidden}
+        end
+
+      {:ok, _row} ->
+        {:error, :forbidden}
+
+      {:error, :unavailable} ->
+        {:error, :not_configured}
+
+      {:error, _reason} ->
+        {:error, :forbidden}
+    end
+  end
+
+  defp authorize_with_replica(user_id, channel_id, "replica_shadow", authorization_header) do
+    replica = authorize_with_replica(user_id, channel_id, "replica", authorization_header)
+    servers = authorize_with_servers(user_id, channel_id, authorization_header)
+
+    if normalize_result(replica) != normalize_result(servers) do
+      Logger.warning("voice_replica_authorization_mismatch",
+        user_id: user_id,
+        channel_id: channel_id,
+        replica: inspect(normalize_result(replica)),
+        servers: inspect(normalize_result(servers))
+      )
+    end
+
+    servers
+  end
+
+  defp normalize_result({:ok, _room, _name, can_publish, server_id}),
+    do: {:ok, can_publish, server_id}
+
+  defp normalize_result({:error, reason}), do: {:error, reason}
+  defp normalize_result(_), do: {:error, :invalid}
+
+  defp decode_json(value, default) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} -> decoded
+      _ -> default
+    end
+  end
+
+  defp decode_json(value, _default) when is_map(value) or is_list(value), do: value
+  defp decode_json(_value, default), do: default
+
+  defp profile_name(name, _user_id) when is_binary(name) and name != "", do: name
+  defp profile_name(_name, user_id), do: user_id
+
   @spec authorize_with_details(String.t(), String.t(), String.t() | nil) ::
           {:ok, map()} | {:error, atom()}
   def authorize_with_details(user_id, channel_id, authorization_header \\ nil)
@@ -153,6 +222,9 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
 
         "servers_api" ->
           authorize_with_servers(user_id, channel_id, authorization_header)
+
+        mode when mode in ["replica", "replica_shadow"] ->
+          authorize_with_replica(user_id, channel_id, mode, authorization_header)
 
         _ ->
           {:error, :not_configured}
