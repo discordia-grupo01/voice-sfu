@@ -7,9 +7,9 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   alias DiscordiaSignaling.Events.{Contract, RabbitMQ}
   alias DiscordiaSignaling.Log
 
-  @max_buffer 1_000
   @min_backoff 1_000
   @max_backoff 30_000
+  @drain_interval 1_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -17,8 +17,14 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
 
   @spec publish(map()) :: :ok
   def publish(event) when is_map(event) do
-    if broker_url() != nil and Process.whereis(__MODULE__) != nil do
-      GenServer.cast(__MODULE__, {:publish, event})
+    if broker_url() != nil do
+      case enqueue_outbox(event) do
+        :ok ->
+          if Process.whereis(__MODULE__) != nil, do: send(__MODULE__, :drain)
+
+        {:error, reason} ->
+          Logger.error("voice_presence_outbox_enqueue_failed", reason: Log.reason(reason))
+      end
     end
 
     :ok
@@ -31,8 +37,6 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
     state = %{
       conn: nil,
       chan: nil,
-      buffer: :queue.new(),
-      size: 0,
       backoff: @min_backoff
     }
 
@@ -41,27 +45,12 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   end
 
   @impl true
-  def handle_cast({:publish, event}, %{chan: nil} = state) do
-    {:noreply, enqueue(state, event)}
-  end
-
-  def handle_cast({:publish, event}, state) do
-    case do_publish(state.chan, event) do
-      :ok ->
-        {:noreply, state}
-
-      {:error, reason} ->
-        Logger.warning("voice_presence_publish_failed", reason: Log.reason(reason))
-        {:noreply, state |> enqueue(event) |> disconnect() |> schedule_connect()}
-    end
-  end
-
-  @impl true
   def handle_info(:connect, %{chan: nil} = state) do
     case connect() do
       {:ok, conn, chan} ->
         Logger.info("voice_presence_publisher_connected")
-        {:noreply, flush(%{state | conn: conn, chan: chan, backoff: @min_backoff})}
+        send(self(), :drain)
+        {:noreply, %{state | conn: conn, chan: chan, backoff: @min_backoff}}
 
       {:error, reason} ->
         Logger.warning("voice_presence_publisher_connect_failed", reason: Log.reason(reason))
@@ -70,6 +59,34 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   end
 
   def handle_info(:connect, state), do: {:noreply, state}
+
+  def handle_info(:drain, %{chan: nil} = state), do: {:noreply, state}
+
+  def handle_info(:drain, state) do
+    case event_store().pending_outbox(100) do
+      {:ok, events} ->
+        next_state =
+          Enum.reduce_while(events, state, fn event, acc ->
+            case do_publish(acc.chan, event.payload) do
+              :ok ->
+                case event_store().mark_outbox_published(event.event_id) do
+                  :ok -> {:cont, acc}
+                  {:error, reason} -> {:halt, disconnect_and_retry(acc, reason)}
+                end
+
+              {:error, reason} ->
+                {:halt, disconnect_and_retry(acc, reason)}
+            end
+          end)
+
+        if next_state.chan != nil, do: Process.send_after(self(), :drain, @drain_interval)
+        {:noreply, next_state}
+
+      {:error, reason} ->
+        Logger.warning("voice_presence_outbox_read_failed", reason: Log.reason(reason))
+        {:noreply, schedule_connect(state)}
+    end
+  end
 
   def handle_info({:EXIT, pid, reason}, %{conn: %{pid: pid}} = state) do
     Logger.warning("voice_presence_publisher_disconnected", reason: Log.reason(reason))
@@ -107,44 +124,20 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   defp normalize_error({:error, _} = error), do: error
   defp normalize_error(other), do: {:error, other}
 
-  defp do_publish(chan, event) do
+  defp do_publish(chan, payload) do
+    {:ok, event} = Jason.decode(payload)
     Contract.check(event["event_type"], event)
 
     AMQP.Basic.publish(
       chan,
       exchange(),
       event["event_type"],
-      Jason.encode!(event),
+      payload,
       persistent: true,
       content_type: "application/json"
     )
   catch
     kind, reason -> {:error, {kind, reason}}
-  end
-
-  defp flush(state) do
-    events = :queue.to_list(state.buffer)
-    state = %{state | buffer: :queue.new(), size: 0}
-
-    Enum.reduce(events, state, fn event, acc ->
-      if acc.chan == nil do
-        enqueue(acc, event)
-      else
-        case do_publish(acc.chan, event) do
-          :ok -> acc
-          {:error, _reason} -> acc |> enqueue(event) |> disconnect() |> schedule_connect()
-        end
-      end
-    end)
-  end
-
-  defp enqueue(%{size: size} = state, event) when size >= @max_buffer do
-    {_, buffer} = :queue.out(state.buffer)
-    %{state | buffer: :queue.in(event, buffer)}
-  end
-
-  defp enqueue(state, event) do
-    %{state | buffer: :queue.in(event, state.buffer), size: state.size + 1}
   end
 
   defp disconnect(%{conn: nil} = state), do: state
@@ -163,6 +156,25 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   defp schedule_connect(state) do
     Process.send_after(self(), :connect, state.backoff)
     %{state | backoff: min(state.backoff * 2, @max_backoff)}
+  end
+
+  defp disconnect_and_retry(state, reason) do
+    Logger.warning("voice_presence_publish_failed", reason: Log.reason(reason))
+    state |> disconnect() |> schedule_connect()
+  end
+
+  defp event_store do
+    Application.get_env(
+      :discordia_signaling,
+      :voice_event_store,
+      DiscordiaSignaling.Voice.ReplicaStore
+    )
+  end
+
+  defp enqueue_outbox(event) do
+    event_store().enqueue_outbox(event)
+  catch
+    :exit, reason -> {:error, reason}
   end
 
   defp broker_url do

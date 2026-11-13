@@ -2,7 +2,7 @@ defmodule DiscordiaSignaling.Events.ReplicaConsumer do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Events.{Contract, DeadLetter, RabbitMQ}
+  alias DiscordiaSignaling.Events.{Contract, DeadLetter, EventAudit, RabbitMQ}
   alias DiscordiaSignaling.Log
   alias DiscordiaSignaling.Voice.ReplicaStore
 
@@ -60,11 +60,19 @@ defmodule DiscordiaSignaling.Events.ReplicaConsumer do
   end
 
   def handle_info({:basic_deliver, payload, meta}, state) do
-    result = process_payload(meta.routing_key, payload)
+    result =
+      EventAudit.process(meta.routing_key, payload, fn ->
+        process_payload(meta.routing_key, payload)
+      end)
 
     attempts =
       case result do
         :database_retry ->
+          Process.sleep(1_000)
+          AMQP.Basic.nack(state.channel, meta.delivery_tag, requeue: true)
+          state.attempts
+
+        :retry ->
           Process.sleep(1_000)
           AMQP.Basic.nack(state.channel, meta.delivery_tag, requeue: true)
           state.attempts
