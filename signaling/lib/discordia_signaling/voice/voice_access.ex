@@ -115,7 +115,7 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
   end
 
   defp authorize_with_replica(user_id, channel_id, "replica", _authorization_header) do
-    case ReplicaStore.authorize(channel_id, user_id) do
+    case replica_store().authorize(channel_id, user_id) do
       {:ok, [server_id, "voice", owner_id, role_ids, roles, overrides, muted, name]} ->
         permissions =
           ReplicaPermissions.effective(
@@ -126,7 +126,7 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
           )
 
         if ReplicaPermissions.can?(permissions, "CONNECT") do
-          {:ok, room_name(channel_id), profile_name(name, user_id), muted == true, server_id}
+          {:ok, room_name(channel_id), profile_name(name, user_id), muted != true, server_id}
         else
           {:error, :forbidden}
         end
@@ -163,6 +163,10 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
 
   defp normalize_result({:error, reason}), do: {:error, reason}
   defp normalize_result(_), do: {:error, :invalid}
+
+  defp replica_store do
+    Application.get_env(:discordia_signaling, :replica_store, ReplicaStore)
+  end
 
   defp decode_json(value, default) when is_binary(value) do
     case Jason.decode(value) do
