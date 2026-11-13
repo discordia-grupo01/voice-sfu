@@ -30,6 +30,33 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisherTest do
     assert {:noreply, ^state} = VoicePresencePublisher.handle_info(:connect, state)
   end
 
+  test "does not read the outbox until a broker channel exists" do
+    assert {:noreply, state} = VoicePresencePublisher.handle_info(:drain, state())
+    assert state.chan == nil
+  end
+
+  test "reconnects when reading the outbox fails" do
+    previous_store = Application.get_env(:discordia_signaling, :voice_event_store)
+
+    Application.put_env(
+      :discordia_signaling,
+      :voice_event_store,
+      DiscordiaSignaling.Voice.OutboxUnavailableStore
+    )
+
+    on_exit(fn ->
+      if previous_store do
+        Application.put_env(:discordia_signaling, :voice_event_store, previous_store)
+      else
+        Application.delete_env(:discordia_signaling, :voice_event_store)
+      end
+    end)
+
+    state = %{state() | conn: nil, chan: :fake_channel}
+    assert {:noreply, next_state} = VoicePresencePublisher.handle_info(:drain, state)
+    assert next_state.backoff == 2_000
+  end
+
   test "ignores unrelated messages and exits" do
     state = state()
 
@@ -76,4 +103,8 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisherTest do
     {:ok, state} = VoicePresencePublisher.init([])
     state
   end
+end
+
+defmodule DiscordiaSignaling.Voice.OutboxUnavailableStore do
+  def pending_outbox(_limit), do: {:error, :unavailable}
 end

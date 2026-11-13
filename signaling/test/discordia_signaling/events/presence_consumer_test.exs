@@ -37,4 +37,34 @@ defmodule DiscordiaSignaling.Events.PresenceConsumerTest do
     assert :ack = PresenceConsumer.process_payload("voice.participant_joined", "[]")
     assert :ack = PresenceConsumer.process_payload("voice.unknown", "{}")
   end
+
+  test "replicates private call events through the private call coordinator" do
+    Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_user:presence-recipient")
+
+    payload =
+      Jason.encode!(%{
+        "event_id" => "private-call-event",
+        "call_id" => "presence-call",
+        "conversation_id" => "conversation-1",
+        "caller_id" => "presence-caller",
+        "recipient_id" => "presence-recipient",
+        "room_name" => "private-call:presence-call",
+        "status" => "ringing"
+      })
+
+    assert :ack = PresenceConsumer.process_payload("voice.private_call", payload)
+    assert_receive {:private_call, "private_call_incoming", %{"call_id" => "presence-call"}}
+  end
+
+  test "ignores broker consume confirmations" do
+    state = %{
+      connection: nil,
+      channel: nil,
+      queue: nil,
+      exchange: "discordia.events",
+      url: "amqp://test"
+    }
+
+    assert {:noreply, ^state} = PresenceConsumer.handle_info({:basic_consume_ok, %{}}, state)
+  end
 end

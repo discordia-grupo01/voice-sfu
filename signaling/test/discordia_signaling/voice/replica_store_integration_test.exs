@@ -13,13 +13,16 @@ defmodule DiscordiaSignaling.Voice.ReplicaStoreIntegrationTest do
       )
 
     previous = Application.get_env(:discordia_signaling, :replica)
+    previous_events = Application.get_env(:discordia_signaling, :voice_events)
     Application.put_env(:discordia_signaling, :replica, database_url: database_url)
+    Application.put_env(:discordia_signaling, :voice_events, database_url: events_database_url())
 
     Supervisor.terminate_child(DiscordiaSignaling.Supervisor, ReplicaStore)
     {:ok, _pid} = Supervisor.restart_child(DiscordiaSignaling.Supervisor, ReplicaStore)
 
     on_exit(fn ->
-      Application.put_env(:discordia_signaling, :replica, previous || [])
+      restore(:replica, previous)
+      restore(:voice_events, previous_events)
       Supervisor.terminate_child(DiscordiaSignaling.Supervisor, ReplicaStore)
       Supervisor.restart_child(DiscordiaSignaling.Supervisor, ReplicaStore)
     end)
@@ -36,6 +39,28 @@ defmodule DiscordiaSignaling.Voice.ReplicaStoreIntegrationTest do
     else
       {:ok, available?: true}
     end
+  end
+
+  test "persists outbox events and consumed-event status", %{available?: available?} do
+    run_if_available(available?, fn ->
+      suffix = Integer.to_string(System.unique_integer([:positive]))
+      event_id = "outbox-" <> suffix
+      event = %{"event_id" => event_id, "event_type" => "voice.test", "value" => "ok"}
+
+      assert :ok = ReplicaStore.enqueue_outbox(event)
+      assert :ok = ReplicaStore.enqueue_outbox(event)
+      assert {:ok, pending} = ReplicaStore.pending_outbox()
+      assert Enum.any?(pending, &(&1.event_id == event_id))
+
+      assert :ok = ReplicaStore.mark_outbox_published(event_id)
+      assert {:ok, pending} = ReplicaStore.pending_outbox()
+      refute Enum.any?(pending, &(&1.event_id == event_id))
+
+      payload = Jason.encode!(event)
+      assert :new = ReplicaStore.begin_consumption(event_id, event["event_type"], payload)
+      assert :ok = ReplicaStore.complete_consumption(event_id, "processed")
+      assert :processed = ReplicaStore.begin_consumption(event_id, event["event_type"], payload)
+    end)
   end
 
   test "applies snapshots and ignores an older event for the same entity", %{
@@ -154,4 +179,14 @@ defmodule DiscordiaSignaling.Voice.ReplicaStoreIntegrationTest do
   end
 
   defp apply_event(routing_key, event), do: ReplicaStore.apply_event(routing_key, event)
+
+  defp events_database_url do
+    System.get_env(
+      "VOICE_EVENTS_DATABASE_URL",
+      "postgres://discordia:discordia@localhost:5432/discordia_voice"
+    )
+  end
+
+  defp restore(key, nil), do: Application.delete_env(:discordia_signaling, key)
+  defp restore(key, value), do: Application.put_env(:discordia_signaling, key, value)
 end
