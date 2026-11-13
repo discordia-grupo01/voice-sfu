@@ -108,6 +108,9 @@ Además de la salida estándar, el servicio puede enviar sus logs al Log API de 
 - `VOICE_REPLICA_DATABASE_URL`: PostgreSQL URL for the local authorization
   projection. The signaling process creates its `voice_replica_*` tables on
   connection and never writes the `servers` database.
+- `VOICE_EVENTS_DATABASE_URL`: PostgreSQL URL for the voice outbox and
+  `voice_consumed_events` audit log. Defaults to `VOICE_REPLICA_DATABASE_URL`
+  and is independent from the `servers` database.
 - `PHOENIX_CHECK_ORIGINS`: comma-separated browser origins allowed to open
   Phoenix sockets. Local defaults are `http://localhost:3000` and
   `http://127.0.0.1:3000`; production must include the exact HTTPS origin of

@@ -12,7 +12,7 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Events.{Contract, RabbitMQ}
+  alias DiscordiaSignaling.Events.{Contract, EventAudit, RabbitMQ}
   alias DiscordiaSignaling.Log
   alias DiscordiaSignaling.Tracing
   alias DiscordiaSignaling.Voice.{PrivateCall, VoiceSessionRegistry}
@@ -67,8 +67,12 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
   @impl true
   def handle_info({:basic_deliver, payload, meta}, state) do
     Tracing.consumer_span(meta, state.queue, fn ->
-      process_payload(meta.routing_key, payload)
-      AMQP.Basic.ack(state.channel, meta.delivery_tag)
+      case EventAudit.process(meta.routing_key, payload, fn ->
+             process_payload(meta.routing_key, payload)
+           end) do
+        :ack -> AMQP.Basic.ack(state.channel, meta.delivery_tag)
+        _ -> AMQP.Basic.nack(state.channel, meta.delivery_tag, requeue: true)
+      end
     end)
 
     {:noreply, state}

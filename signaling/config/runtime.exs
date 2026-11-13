@@ -144,6 +144,16 @@ config :discordia_signaling, :replica,
       "postgres://discordia:discordia@db:5432/discordia_voice"
     )
 
+config :discordia_signaling, :voice_events,
+  database_url:
+    System.get_env(
+      "VOICE_EVENTS_DATABASE_URL",
+      System.get_env(
+        "VOICE_REPLICA_DATABASE_URL",
+        "postgres://discordia:discordia@db:5432/discordia_voice"
+      )
+    )
+
 if config_env() == :prod do
   port = String.to_integer(System.get_env("PORT", "4000"))
   secret_key_base = System.fetch_env!("SECRET_KEY_BASE")

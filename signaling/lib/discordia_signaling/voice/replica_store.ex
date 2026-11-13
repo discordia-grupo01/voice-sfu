@@ -46,6 +46,26 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
     name text NOT NULL,
     version bigint NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS voice_outbox_events (
+    event_id text PRIMARY KEY,
+    event_type text NOT NULL,
+    payload jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    published_at timestamptz
+  );
+  CREATE INDEX IF NOT EXISTS voice_outbox_events_pending_idx
+    ON voice_outbox_events (created_at) WHERE published_at IS NULL;
+  CREATE TABLE IF NOT EXISTS voice_consumed_events (
+    event_id text PRIMARY KEY,
+    event_type text NOT NULL,
+    payload jsonb NOT NULL,
+    status text NOT NULL,
+    received_at timestamptz NOT NULL DEFAULT now(),
+    processed_at timestamptz,
+    error text
+  );
+  CREATE INDEX IF NOT EXISTS voice_consumed_events_status_idx
+    ON voice_consumed_events (status, received_at);
   """
 
   @keys %{
@@ -73,11 +93,27 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
 
   def ping, do: GenServer.call(__MODULE__, :ping, 2_000)
 
+  def enqueue_outbox(event),
+    do: GenServer.call(__MODULE__, {:enqueue_outbox, event}, 1_000)
+
+  def pending_outbox(limit \\ 100),
+    do: GenServer.call(__MODULE__, {:pending_outbox, limit}, 1_000)
+
+  def mark_outbox_published(event_id),
+    do: GenServer.call(__MODULE__, {:mark_outbox_published, event_id}, 1_000)
+
+  def begin_consumption(event_id, event_type, payload),
+    do: GenServer.call(__MODULE__, {:begin_consumption, event_id, event_type, payload}, 1_000)
+
+  def complete_consumption(event_id, status, error \\ nil),
+    do: GenServer.call(__MODULE__, {:complete_consumption, event_id, status, error}, 1_000)
+
   @impl true
   def init(_opts) do
     state = %{
       url:
-        Application.get_env(:discordia_signaling, :replica, [])[:database_url] ||
+        Application.get_env(:discordia_signaling, :voice_events, [])[:database_url] ||
+          Application.get_env(:discordia_signaling, :replica, [])[:database_url] ||
           "postgres://discordia:discordia@localhost:5432/discordia_voice",
       conn: nil
     }
@@ -123,6 +159,154 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
   def handle_call(:ping, _from, %{conn: conn} = state) do
     reply =
       case Postgrex.query(conn, "SELECT 1", []) do
+        {:ok, _} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:enqueue_outbox, _event}, _from, %{conn: nil} = state),
+    do: {:reply, {:error, :unavailable}, state}
+
+  def handle_call({:enqueue_outbox, event}, _from, %{conn: conn} = state) do
+    event_id = event["event_id"]
+    event_type = event["event_type"]
+
+    reply =
+      if is_binary(event_id) and event_id != "" and is_binary(event_type) and event_type != "" do
+        case Postgrex.query(
+               conn,
+               """
+                 INSERT INTO voice_outbox_events (event_id, event_type, payload)
+                 VALUES ($1, $2, $3::jsonb)
+                 ON CONFLICT (event_id) DO NOTHING
+               """,
+               [event_id, event_type, Jason.encode!(event)]
+             ) do
+          {:ok, _} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+      else
+        {:error, :invalid_event}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:pending_outbox, _limit}, _from, %{conn: nil} = state),
+    do: {:reply, {:error, :unavailable}, state}
+
+  def handle_call({:pending_outbox, limit}, _from, %{conn: conn} = state) do
+    reply =
+      Postgrex.query(
+        conn,
+        """
+          SELECT event_id, event_type, payload::text
+          FROM voice_outbox_events
+          WHERE published_at IS NULL
+          ORDER BY created_at, event_id
+          LIMIT $1
+        """,
+        [limit]
+      )
+
+    result =
+      case reply do
+        {:ok, %{rows: rows}} ->
+          {:ok,
+           Enum.map(rows, fn [event_id, event_type, payload] ->
+             %{event_id: event_id, event_type: event_type, payload: payload}
+           end)}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:mark_outbox_published, _event_id}, _from, %{conn: nil} = state),
+    do: {:reply, {:error, :unavailable}, state}
+
+  def handle_call({:mark_outbox_published, event_id}, _from, %{conn: conn} = state) do
+    reply =
+      case Postgrex.query(
+             conn,
+             "UPDATE voice_outbox_events SET published_at = now() WHERE event_id = $1",
+             [event_id]
+           ) do
+        {:ok, _} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call(
+        {:begin_consumption, _event_id, _event_type, _payload},
+        _from,
+        %{conn: nil} = state
+      ),
+      do: {:reply, {:error, :unavailable}, state}
+
+  def handle_call(
+        {:begin_consumption, event_id, event_type, payload},
+        _from,
+        %{conn: conn} = state
+      ) do
+    reply =
+      case Postgrex.query(
+             conn,
+             """
+               INSERT INTO voice_consumed_events (event_id, event_type, payload, status)
+               VALUES ($1, $2, $3::jsonb, 'pending')
+               ON CONFLICT (event_id) DO NOTHING
+               RETURNING status
+             """,
+             [event_id, event_type, payload]
+           ) do
+        {:ok, %{num_rows: 1}} ->
+          :new
+
+        {:ok, %{num_rows: 0}} ->
+          case Postgrex.query(
+                 conn,
+                 "SELECT status FROM voice_consumed_events WHERE event_id = $1",
+                 [event_id]
+               ) do
+            {:ok, %{rows: [["processed"]]}} -> :processed
+            {:ok, %{rows: [["pending"]]}} -> :new
+            {:ok, %{rows: [["failed"]]}} -> :new
+            {:error, reason} -> {:error, reason}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call(
+        {:complete_consumption, _event_id, _status, _error},
+        _from,
+        %{conn: nil} = state
+      ),
+      do: {:reply, {:error, :unavailable}, state}
+
+  def handle_call({:complete_consumption, event_id, status, error}, _from, %{conn: conn} = state) do
+    reply =
+      case Postgrex.query(
+             conn,
+             """
+               UPDATE voice_consumed_events
+               SET status = $2, processed_at = CASE WHEN $2 = 'processed' THEN now() ELSE processed_at END,
+                   error = $3
+               WHERE event_id = $1
+             """,
+             [event_id, status, error]
+           ) do
         {:ok, _} -> :ok
         {:error, reason} -> {:error, reason}
       end

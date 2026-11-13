@@ -38,6 +38,31 @@ defmodule DiscordiaSignaling.Events.ReplicaConsumerTest do
     assert :invalid = ReplicaConsumer.process_payload("servers.role_updated", "not-json")
   end
 
+  test "initializes and retries a broker connection" do
+    assert {:ok, state} =
+             ReplicaConsumer.init(
+               rabbitmq_url: "amqp://127.0.0.1:1",
+               exchange: "discordia.events",
+               queue: "voice.replica.test"
+             )
+
+    assert {:noreply, next_state} = ReplicaConsumer.handle_info(:connect, state)
+    assert next_state.connection == nil
+    assert_receive :connect, 1_500
+  end
+
+  test "clears a failed broker connection and reconnects" do
+    state = %{connection: :connection, channel: :channel, attempts: %{}, queue: "q"}
+
+    assert {:noreply, %{connection: nil, channel: nil}} =
+             ReplicaConsumer.handle_info(
+               {:DOWN, make_ref(), :process, self(), :closed},
+               state
+             )
+
+    assert_receive :connect
+  end
+
   test "rejects unknown routing keys" do
     payload = Jason.encode!(%{"event_id" => "event-1", "occurred_at" => "2026-11-01T10:00:00Z"})
 
