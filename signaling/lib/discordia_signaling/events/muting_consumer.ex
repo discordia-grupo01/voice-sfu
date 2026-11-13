@@ -10,7 +10,7 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Events.{Contract, DeadLetter, RabbitMQ}
+  alias DiscordiaSignaling.Events.{Contract, DeadLetter, EventAudit, RabbitMQ}
   alias DiscordiaSignaling.Log
   alias DiscordiaSignaling.Tracing
   alias DiscordiaSignaling.Voice.{LiveKitRoomService, ScreenShare, VoiceSessionRegistry}
@@ -78,7 +78,11 @@ defmodule DiscordiaSignaling.Events.MutingConsumer do
   def handle_info({:basic_deliver, payload, meta}, state) do
     attempts =
       Tracing.consumer_span(meta, state.queue, fn ->
-        result = process_payload(meta.routing_key, payload)
+        result =
+          EventAudit.process(meta.routing_key, payload, fn ->
+            process_payload(meta.routing_key, payload)
+          end)
+
         Tracing.mark_outcome(result)
         DeadLetter.finish(result, state, meta, payload)
       end)

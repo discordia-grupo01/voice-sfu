@@ -28,6 +28,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
     AdminSignature,
     Contract,
     DeadLetter,
+    EventAudit,
     RabbitMQ,
     SuspensionVersions
   }
@@ -93,7 +94,11 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
   def handle_info({:basic_deliver, payload, meta}, state) do
     attempts =
       Tracing.consumer_span(meta, state.queue, fn ->
-        result = process_payload(meta.routing_key, payload, state.secret)
+        result =
+          EventAudit.process(meta.routing_key, payload, fn ->
+            process_payload(meta.routing_key, payload, state.secret)
+          end)
+
         Tracing.mark_outcome(result)
         DeadLetter.finish(result, state, meta, payload)
       end)
