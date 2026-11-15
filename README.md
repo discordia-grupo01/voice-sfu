@@ -1,143 +1,175 @@
-# Discordia Voice
+# voice-sfu
 
-Este directorio contiene los dos módulos del apartado de voz:
+Servicio de voz de Discordia.
 
-- `voice-sfu/` raíz: prototipo educativo de SFU propio con Go/Pion, RTP/RTCP y forwarding de audio.
-- `signaling/`: módulo Elixir/Phoenix que autentica, autoriza salas y emite tokens de LiveKit.
-- `livekit.yaml`: configuración local del media server LiveKit.
+## Tabla de contenidos
 
-LiveKit es el media plane de la primera versión funcional. Phoenix es dueño del acceso a salas y entrega tokens. El Go SFU se conserva como prototipo alternativo bajo el perfil Docker `prototype`.
+- [Introducción](#introducción)
+- [Pre-requisitos](#pre-requisitos)
+- [Cómo correr](#cómo-correr)
+- [Variables de entorno](#variables-de-entorno)
+- [Comandos Docker](#comandos-docker)
+- [Tests](#tests)
+- [Más documentación](#más-documentación)
 
-## Desarrollo local
+## Introducción
 
-### Go SFU
+`voice-sfu` es todo lo que hace falta para hablar por voz en Discordia. Tiene dos partes:
 
-Desde este directorio:
+- **signaling:** una aplicación Elixir con Phoenix (carpeta [`signaling`](signaling)) que decide quién puede entrar a un canal de voz y le entrega un token. También lleva la cuenta de quién está en cada sala, avisa a los clientes por WebSocket quién entra y sale, y maneja las llamadas privadas uno a uno y el compartir pantalla.
+- **LiveKit:** el servidor de medios (SFU) que recibe y reparte el audio. Se usa tal cual, con la configuración de [`livekit.yaml`](livekit.yaml) en local y la carpeta [`livekit`](livekit) para desplegarlo.
+
+El audio no pasa por `signaling`: el cliente le pide un token y con él se conecta directo a LiveKit por WebRTC. `signaling` solo firma ese token con los permisos del usuario y después controla las salas (expulsar a alguien, silenciarlo).
+
+Para decidir si un usuario puede entrar a un canal, `signaling` usa su propia copia de los roles, permisos y miembros de cada servidor, que mantiene al día con los eventos de RabbitMQ y guarda en su base PostgreSQL. En esa misma base anota los eventos que publica (quién entró o salió de una sala) antes de mandarlos a RabbitMQ, para no perderlos. Las llamadas privadas consultan a `messaging` por HTTP para comprobar que los dos usuarios están en la conversación y que no hay un bloqueo entre ellos.
+
+El JWT lo valida el gateway (Kong) y este servicio también lo verifica con `JWT_SECRET`. La API REST está descripta en [`openapi.yaml`](openapi.yaml).
+
+## Pre-requisitos
+
+- **Docker** y **Docker Compose** v2.24 o más nuevo.
+- **RabbitMQ**, que se levanta con el repositorio [`rabbit-mq`](https://github.com/discordia-grupo01/rabbit-mq). Sin él, `signaling` arranca igual y reintenta conectarse, pero no recibe permisos ni publica presencia.
+- **Elixir 1.17.3** y **Erlang/OTP 27**, solo si querés correr `signaling` en tu máquina.
+- Un cliente con el SDK de LiveKit, solo si querés probar el audio de verdad. Con la web o la app del proyecto alcanza.
+
+## Cómo correr
+
+### Con Docker Compose
+
+Levanta `signaling`, LiveKit y la base PostgreSQL, sin configurar nada:
 
 ```bash
-go mod download
-go test ./... -cover
-go run ./cmd/api
+docker compose up --build
 ```
 
-El SFU escucha HTTP/WebSocket en `8080` y media UDP en `50000`. `PUBLIC_IP` debe ser una dirección alcanzable por los clientes WebRTC.
-
-### Phoenix signaling
-
-Desde `signaling/`:
+Cuando todo esté arriba, comprobá que el servicio esté vivo. `/readyz` además verifica que pueda hablar con LiveKit:
 
 ```bash
+curl http://localhost:4000/readyz
+```
+
+Para pedir un token de voz necesitás un JWT firmado con `JWT_SECRET` (el compose trae uno de ejemplo). En local, `VOICE_AUTHZ_MODE=allow_authenticated` deja entrar a cualquier usuario autenticado a cualquier canal, así no hace falta tener cargados servidores ni permisos:
+
+```bash
+curl -X POST http://localhost:4000/api/voice/token \
+  -H "Authorization: Bearer <tu JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{"channel_id": "22222222-2222-4222-8222-222222222222"}'
+```
+
+Si querés cambiar puertos, secretos o el modo de autorización, copiá el archivo de ejemplo y editalo antes de levantar:
+
+```bash
+cp .env.example .env
+```
+
+Este compose levanta solo lo que es de este servicio. Para el sistema completo (con el gateway y los demás servicios) usá el compose del repositorio `infrastructure`.
+
+### Con eventos (RabbitMQ)
+
+Para que `signaling` reciba los permisos y publique presencia, levantá primero RabbitMQ desde el repositorio `rabbit-mq`:
+
+```bash
+cd ../rabbit-mq
+docker compose up -d
+```
+
+El compose ya apunta a `host.docker.internal:5672`, que desde un contenedor es tu máquina. Si lo levantaste en otro lado, completá `RABBITMQ_URL_DOCKER` en el `.env`.
+
+### Para desarrollar
+
+Si vas a tocar el código de `signaling`, te conviene correrlo en tu máquina y dejar en contenedores solo LiveKit y la base:
+
+```bash
+cp .env.example .env
+docker compose up -d livekit db
+cd signaling
 mix deps.get
 mix phx.server
 ```
 
-Phoenix escucha en `http://localhost:4000`, expone `GET /livez` y `GET /readyz`. El endpoint autenticado `POST /api/voice/token` recibe `{ "channel_id": "..." }`, valida el acceso en `servers` y devuelve un token para la sala derivada `voice:<channel_id>`.
+## Variables de entorno
 
-`POST /api/voice/screen-token` (mismo body) es para compartir la pantalla desde el APK de Android: la llamada de mobile corre en un WebView que no puede capturar la pantalla, así que la app entra a la misma sala una segunda vez con la identidad `<user_id>:screen`, que solo puede publicar la pantalla y no se suscribe a nada. Solo se emite si el usuario ya está en esa sala (`409 voice_not_in_channel`) y no está silenciado por un moderador (`403 voice_screen_share_forbidden`). Ese acompañante no cuenta como participante (no aparece en la presencia), y signaling lo saca junto con su dueño al salir, cambiar de canal, perder el acceso o ser silenciado.
+Se leen del entorno o de un archivo `.env`. El archivo [`.env.example`](.env.example) trae valores listos para correr en local.
 
-### LiveKit
+| Variable | Default | Descripción |
+|---|---|---|
+| `PORT` | `4000` | Puerto donde escucha `signaling`. |
+| `SECRET_KEY_BASE` | obligatoria | Secreto de Phoenix, de al menos 64 caracteres. |
+| `JWT_SECRET` | obligatoria | Secreto con el que se valida el JWT del usuario. Es un secreto. |
+| `PHOENIX_CHECK_ORIGINS` | los dominios de la web | Orígenes permitidos para el WebSocket, separados por coma. |
+| `LIVEKIT_URL` | `ws://localhost:7880` | URL de LiveKit. `signaling` la usa para controlar las salas y se la entrega a los clientes para conectarse. |
+| `LIVEKIT_API_KEY` | `devkey` | Clave de la API de LiveKit. |
+| `LIVEKIT_API_SECRET` | `devsecret` | Secreto de la API de LiveKit. Es un secreto. |
+| `LIVEKIT_TOKEN_TTL_SECONDS` | `3600` | Cuánto dura un token de voz. |
+| `VOICE_AUTHZ_MODE` | `deny` | Cómo se decide si un usuario puede entrar a un canal: `replica` (usa la copia local, es lo que va en producción), `servers_api` (le pregunta a `servers` por HTTP), `replica_shadow` (compara las dos y sigue con `servers`) o `allow_authenticated` (deja entrar a cualquiera con JWT, solo local). Sin valor, `deny` rechaza todo. |
+| `SERVERS_URL` | `http://servers:8080` | URL de `servers`. Solo con `servers_api` o `replica_shadow`. |
+| `SERVERS_HEALTH_URL` | vacío | Ruta de salud de `servers` que mira `/readyz`, si `SERVERS_URL` apunta al gateway. |
+| `MESSAGING_URL` | `http://messaging:4000` | URL de `messaging`, para autorizar llamadas privadas. |
+| `RABBITMQ_URL` | vacío | Conexión a RabbitMQ. Vacía = el servicio arranca pero no consume ni publica eventos. |
+| `EVENTS_EXCHANGE` | `discordia.events` | Exchange compartido por los servicios. |
+| `VOICE_EVENTS_QUEUE` | `voice.signaling` | Prefijo de las colas de este servicio. |
+| `VOICE_INSTANCE_ID` | el id de la máquina | Nombre de esta instancia. Cada instancia tiene sus propias colas. |
+| `ADMIN_EVENTS_HMAC_SECRET` | vacío | Secreto compartido con `admin` para verificar las suspensiones. Es un secreto. |
+| `VOICE_REPLICA_DATABASE_URL` | una base local | Conexión a PostgreSQL de la copia de permisos. |
+| `VOICE_EVENTS_DATABASE_URL` | la misma que la anterior | Conexión a PostgreSQL de los eventos publicados y consumidos. |
+| `TS_AUTHKEY` | vacío | Clave de Tailscale. Si está, el contenedor entra a la red privada. Solo en producción. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | vacío | Backend OpenTelemetry (por ejemplo New Relic). Vacío = sin trazas ni métricas. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | vacío | Credenciales del backend. Es un secreto. |
+| `LOG_SHIP_URL` | vacío | Si se completa, también manda los logs a New Relic. |
 
-LiveKit escucha en `ws://localhost:7880` y publica media UDP en el rango `51000-51100`. El cliente debe conectarse usando un SDK de LiveKit con el token emitido por Phoenix.
+Variables que usa solo `docker-compose.yml`:
 
-Las llamadas privadas 1 a 1 usan `POST /api/voice/calls` con el `recipient_id` y
-el `conversation_id` de la conversación directa. Phoenix valida esa conversación
-contra Messaging, incluyendo bloqueos en ambos sentidos, y crea una sala
-`private-call:<call_id>`. La aceptación, el rechazo y la finalización se
-gestionan en `/api/voice/calls/:id/{accept,reject,finish}`. Las transiciones
-llegan al topic autenticado `voice_user:<user_id>` y se publica
-`voice.private_call` para Notifications. Para compartir la pantalla desde el
-APK durante una llamada privada, `POST /api/voice/calls/:id/screen-token` da el
-mismo token de acompañante `<user_id>:screen`; solo lo reciben los dos
-participantes y con la llamada ya atendida (`403 voice_call_forbidden`,
-`404 call_not_found`, `409 invalid_call_state`).
+| Variable | Default | Descripción |
+|---|---|---|
+| `SIGNALING_PORT` | `4000` | Puerto de `signaling` en tu máquina. |
+| `DATABASE_PORT` | `5434` | Puerto de PostgreSQL en tu máquina. |
+| `LIVEKIT_PUBLIC_URL` | `ws://host.docker.internal:7880` | URL de LiveKit para `signaling` y para los clientes. |
+| `RABBITMQ_URL_DOCKER` | `amqp://guest:guest@host.docker.internal:5672/` | Conexión a RabbitMQ para el servicio que corre dentro del compose. |
 
-### Docker Compose
+LiveKit publica el puerto `7880` (WebSocket), `7881` (TCP) y los puertos UDP `51000` a `51010`.
+
+## Comandos Docker
+
+Todos desde la raíz del repositorio.
+
+| Qué querés hacer | Comando |
+|---|---|
+| Levantar todo | `docker compose up --build` |
+| Levantar todo en segundo plano | `docker compose up -d --build` |
+| Levantar solo LiveKit y la base | `docker compose up -d livekit db` |
+| Ver los logs de signaling | `docker compose logs -f signaling` |
+| Ver qué está corriendo | `docker compose ps` |
+| Reconstruir solo signaling | `docker compose up -d --build signaling` |
+| Abrir una consola de la base | `docker compose exec db psql -U discordia -d discordia_voice` |
+| Bajar todo, conservando los datos | `docker compose down` |
+| Bajar todo y borrar los datos | `docker compose down -v` |
+
+Las tablas de la base las crea `signaling` solo, al arrancar.
+
+Dentro de un contenedor, `LIVEKIT_URL`, `MESSAGING_URL` y `RABBITMQ_URL` no pueden apuntar a `localhost`: tienen que usar el nombre del contenedor o `host.docker.internal`.
+
+## Tests
+
+Desde la carpeta `signaling`:
 
 ```bash
-cp .env.example .env
-docker compose up --build
+cd signaling
+mix test --cover
 ```
 
-Esto levanta Phoenix, LiveKit, RabbitMQ y PostgreSQL. El Go SFU propio no se inicia por defecto; para probarlo se usa `docker compose --profile prototype up --build sfu`.
+El CI exige una cobertura mínima del 70 %. También corre `make sobelow`, el análisis de seguridad del código.
 
-## Contrato actual
+La carpeta [`connectivity-tests`](connectivity-tests) tiene scripts para comprobar la conexión WebRTC contra LiveKit.
 
-El mensaje de signaling Go usa `type`, `room_id`, `peer_id` y `data`. Los tipos actuales son `join`, `leave`, `offer`, `answer` y `candidate`; la forma exacta está en `internal/model/message.go`.
+## Más documentación
 
-Los eventos publicados por el SFU son `voice.participant.joined`, `voice.participant.left` y `voice.channel.empty`. Sus payloads están en `internal/events/events-contract/voice.go`.
+En este repositorio:
 
-Phoenix consume del exchange `discordia.events` (cola `VOICE_EVENTS_QUEUE`, por defecto `voice.signaling`) estos eventos de `servers`:
+- [`docs/historias-de-usuario.md`](docs/historias-de-usuario.md): las historias del catálogo que resuelve este servicio.
+- [`openapi.yaml`](openapi.yaml): contrato de la API REST.
+- [`signaling/README.md`](signaling/README.md): detalle de `signaling`, sus health checks y sus logs.
 
-- `servers.member_muted` / `servers.member_unmuted`: quita o devuelve el permiso de publicar audio al participante en su sala activa.
-- `servers.channel_access_revoked`: saca de la sala `voice:<channel_id>` a los `user_ids` que perdieron `VIEW_CHANNELS` en ese canal (overrides o cambios de roles, transferencia de propiedad, expulsión, baneo o abandono del servidor). Así es como se corta la llamada al expulsar, banear o cuando el miembro abandona el servidor. Si el usuario está en otra sala o no está en voz, no pasa nada.
-- `servers.channel_deleted`: cierra la sala `voice:<channel_id>` con `DeleteRoom` de LiveKit, que desconecta a todos sus participantes.
-- `servers.server_deleted`: cierra la sala de cada canal de `channel_ids`.
+En el repositorio [`docs`](https://github.com/discordia-grupo01/docs):
 
-Además consume `admin.user_suspended` (`Events.SuspensionConsumer`, cola propia por réplica, sufijo `suspensions`) para sacar de su sala a un usuario suspendido a nivel plataforma:
-
-- Verifica la firma `HMAC-SHA256(ADMIN_EVENTS_HMAC_SECRET, routing_key 
- event_id 
- user_id 
- version 
- occurred_at)` en hexadecimal minúsculas, con el `occurred_at` tal cual llegó. Un evento sin firma o con firma inválida se descarta con ack y un warning, sin tocar nada.
-- Si la `version` es mayor a la última vista para ese usuario (registro en memoria, se pierde al reiniciar), saca al usuario de su sala activa con la misma operación que `servers.channel_access_revoked`. Si no está en voz o LiveKit ya no lo tiene, es éxito; si LiveKit no responde, se reencola.
-- `admin.user_reactivated` no requiere nada en voz.
-- Si `ADMIN_EVENTS_HMAC_SECRET` está vacío, este consumidor no arranca (se loguea el error) y el resto del servicio sigue.
-
-La misma cola recibe también la moderación de **servidores** (HU #69), con la misma firma pero con `server_id` como sujeto firmado en lugar de `user_id`:
-
-- `admin.server_suspended`: si su `version` es mayor a la última vista para ese servidor (en memoria, como las de usuarios), olvida las membresías de ese servidor en `MembershipCache`, cierra con `DeleteRoom` todas las salas que este nodo conoce para el servidor (`VoiceSessionRegistry.rooms_of_server/1`, el evento no trae canales) y registra la versión. Es el mismo camino que `servers.server_deleted`, así que se corta también a quien comparte pantalla. Si LiveKit no responde se reencola sin registrar la versión.
-- `admin.server_reactivated`: no abre ni cierra nada; solo registra la versión, para que una suspensión más vieja que llegue tarde no vuelva a sacar a quien ya reingresó.
-- Se descartan con ack, sin tocar nada, los eventos con firma ausente o inválida, JSON roto, `server_id` vacío o `version < 1`.
-- `admin.server_deletion_requested` no se consume acá: `servers` lo ejecuta y publica `servers.server_deleted`, que voz ya procesa.
-- La **entrada** a voz de un servidor suspendido la bloquea `voice-access` de `servers` con `403` (voz lo traduce a `voice_forbidden`, igual que el `403` de `/membership` en la presencia). Orden de despliegue: voz tiene que estar desplegada **antes** que admin; si no, un `server_suspended` publicado antes de que exista el binding no llega y se recupera con `make republish-suspensions` en admin.
-
-La **entrada** de un suspendido a voz no se decide acá: `POST /api/voice/token` autoriza contra `voice-access` de `servers` (`VOICE_AUTHZ_MODE=servers_api`), que responde `403` a un suspendido, y voz devuelve `403 voice_forbidden`. Con `VOICE_AUTHZ_MODE=allow_authenticated` (solo desarrollo) un suspendido sí podría entrar. Si voz estaba caída cuando se suspendió al usuario, puede seguir en la sala hasta que venza el token de LiveKit (1 hora); `make republish-suspensions` en admin re-publica las suspensiones vigentes.
-
-Una sala o participante que LiveKit ya no tiene cuenta como éxito. Si LiveKit no responde, el mensaje se devuelve a la cola (nack con requeue) y se reintenta entero; repetir la salida o el cierre es idempotente. Los payloads inválidos se descartan con ack. Los contratos están en `discordia-events_contract` (`channels/events.go`, `servers/events.go`).
-
-Cada réplica de signaling usa una cola RabbitMQ propia, derivada de
-`VOICE_EVENTS_QUEUE` y `VOICE_INSTANCE_ID`, para que todas las réplicas reciban
-los eventos de control y presencia. Los eventos
-`voice.participant_joined`/`voice.participant_left` se reaplican de forma
-idempotente en el registro local usando `occurred_at`; PubSub sólo distribuye
-actualizaciones dentro del nodo. Esto replica el estado de signaling, no el
-media plane: LiveKit continúa siendo responsable de WebRTC, RTP y RTCP.
-
-Al arrancar, una réplica no depende de eventos históricos: consulta a LiveKit
-con `ListRooms` y `ListParticipants`, reconstruye su registro local y repite la
-reconciliación periódicamente. Si LiveKit está caído, conserva el proceso vivo,
-registra el error y reintenta. Esto recupera los participantes conectados en
-ese momento; no recupera llamadas ya terminadas, porque no forman parte del
-estado activo.
-
-En local, cada réplica debe usar un `VOICE_INSTANCE_ID` distinto. El valor de
-`.env.example` (`local-signaling-1`) es sólo para una instancia; al escalar
-manualmente hay que sobrescribirlo por réplica para que RabbitMQ no comparta la
-misma cola entre procesos.
-
-El contrato de acceso a LiveKit contiene `identity`, `room_name`, `token` y `url`. `room_name` no es entrada del cliente: Phoenix lo deriva del canal autorizado y firma el JWT con `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET`.
-
-## Estructura
-
-```text
-voice-sfu/
-├── cmd/api/                 entrypoint del SFU Go
-├── internal/                handler, servicio WebRTC, repositorio y eventos
-├── migrations/              futuras migraciones del servicio
-├── signaling/
-│   ├── config/               configuración Phoenix
-│   └── lib/                  OTP application, Endpoint, Socket y Channel
-├── docker-compose.yml
-├── Dockerfile                imagen del SFU prototipo
-├── livekit.yaml              configuración del media server local
-└── signaling/Dockerfile      imagen del servicio de control
-```
-
-## Advertencias
-
-- En desarrollo `VOICE_AUTHZ_MODE=allow_authenticated` permite cualquier usuario autenticado; producción debe conectar la autorización real de membresía del servicio de servidores.
-- `SfuBridge` se conserva como prototipo de integración con el SFU Go, pero no participa del flujo LiveKit.
-- LiveKit es el servidor de media; no enviar RTP por Phoenix, RabbitMQ ni el endpoint de tokens.
-- El SFU Go mantiene las salas en memoria y no está preparado para múltiples réplicas.
-- No mover lógica WebRTC, RTP o RTCP al módulo Phoenix.
+- [`asyncapi`](https://github.com/discordia-grupo01/docs/tree/main/asyncapi): los eventos que este servicio publica y consume.
