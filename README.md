@@ -162,6 +162,24 @@ El CI exige una cobertura mínima del 70 %. También corre `make sobelow`, el an
 
 La carpeta [`connectivity-tests`](connectivity-tests) tiene scripts para comprobar la conexión WebRTC contra LiveKit.
 
+## Tests de contrato
+
+`openapi.yaml` se genera desde el código (`open_api_spex`) y Schemathesis lo ejecuta contra el servicio real, con un escenario de camino feliz que valida cada respuesta contra el contrato.
+
+```bash
+cd signaling
+python -m venv ../.contract-venv && ../.contract-venv/bin/pip install schemathesis==4.33.4   # una vez (en Windows: Scripts/)
+make openapi             # regenera ../openapi.yaml
+make contract-deps-up    # Postgres 55508, RabbitMQ 55518 y LiveKit dev 57880 (contenedores contract-voice-*)
+make contract-test       # servicio en 18088; falla si hay desvios o una operacion sin 2xx real
+make contract-deps-down
+```
+
+- El script (`signaling/scripts/contract-test.sh`) solo corre contra `localhost`/`127.0.0.1` (base, RabbitMQ y LiveKit) y usa valores de juguete: LiveKit en modo `--dev` con las claves `devkey`/`devsecret`, y un falso local de messaging para las llamadas privadas.
+- `CONTRACT_APP_MODE=docker` compila y corre el servicio en un contenedor `elixir:1.17.3-otp-27`, igual que el CI.
+- Al final mide la cobertura de camino feliz: cuántas operaciones obtuvieron un 2xx real. Las excepciones, con su motivo, están en `scripts/contract/schemathesis.toml`.
+- Si el CI falla por el contrato, correr `make openapi` y commitear el resultado.
+
 ## Más documentación
 
 En este repositorio:

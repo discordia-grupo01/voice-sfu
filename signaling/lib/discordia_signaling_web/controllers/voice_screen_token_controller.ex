@@ -1,7 +1,33 @@
 defmodule DiscordiaSignalingWeb.VoiceScreenTokenController do
   use Phoenix.Controller, formats: [:json]
+  use OpenApiSpex.ControllerSpecs
 
   alias DiscordiaSignaling.Voice.{LiveKitToken, ScreenShare, VoiceAccess, VoiceSessionRegistry}
+  alias DiscordiaSignalingWeb.Schemas
+
+  tags(["voice"])
+
+  operation(:create,
+    summary: "Emite un token de LiveKit para compartir pantalla desde el celular",
+    description:
+      "Lo usa la app Android, cuya llamada corre en un WebView que no puede capturar la pantalla. Entra a la misma sala una segunda vez con la identidad `<user_id>:screen`, que solo publica pantalla. El usuario ya tiene que estar en la sala del canal y poder hablar.",
+    security: [%{"bearerAuth" => []}],
+    request_body: {"Canal de voz", "application/json", Schemas.ChannelRequest, required: true},
+    responses: [
+      ok: {"Token emitido", "application/json", Schemas.ScreenToken},
+      bad_request: {"Falta channel_id", "application/json", Schemas.BadRequest},
+      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      forbidden:
+        {"Sin acceso al canal (voice_forbidden) o un moderador lo silenció (voice_screen_share_forbidden)",
+         "application/json", Schemas.ErrorResponse},
+      conflict:
+        {"El usuario no está en la sala de ese canal (voice_not_in_channel)", "application/json",
+         Schemas.ErrorResponse},
+      service_unavailable:
+        {"LiveKit o la autorización no están disponibles", "application/json",
+         Schemas.ErrorResponse}
+    ]
+  )
 
   def create(conn, %{"channel_id" => channel_id}) when is_binary(channel_id) do
     try do

@@ -35,6 +35,8 @@ defmodule DiscordiaSignaling.MixProject do
       {:phoenix_pubsub, "~> 2.1.3"},
       {:jason, "~> 1.4.3"},
       {:jose, "~> 1.11.10"},
+      {:open_api_spex, "~> 3.21"},
+      {:ymlr, "~> 5.0", only: :dev, runtime: false},
       {:amqp, "~> 4.0"},
       {:postgrex, "~> 0.19"},
       {:events_contract, github: "discordia-grupo01/events-contract", tag: "v0.17.0"},

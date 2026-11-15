@@ -1,9 +1,32 @@
 defmodule DiscordiaSignalingWeb.VoiceTokenController do
   use Phoenix.Controller, formats: [:json]
+  use OpenApiSpex.ControllerSpecs
 
   alias DiscordiaSignaling.Voice.LiveKitToken
   alias DiscordiaSignaling.Voice.VoiceAccess
   alias DiscordiaSignaling.Voice.VoiceSessionRegistry
+  alias DiscordiaSignalingWeb.Schemas
+
+  tags(["voice"])
+
+  operation(:create,
+    summary: "Emite un token de LiveKit para entrar a un canal de voz",
+    description:
+      "Valida el acceso al canal, emite un token de corta vida para la sala `voice:<channel_id>` y registra al usuario en ella (si estaba en otra sala, lo saca de la anterior).",
+    security: [%{"bearerAuth" => []}],
+    request_body: {"Canal de voz", "application/json", Schemas.ChannelRequest, required: true},
+    responses: [
+      ok: {"Token emitido", "application/json", Schemas.VoiceToken},
+      bad_request: {"Falta channel_id", "application/json", Schemas.BadRequest},
+      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      forbidden:
+        {"El usuario no puede entrar al canal (voice_forbidden)", "application/json",
+         Schemas.ErrorResponse},
+      service_unavailable:
+        {"LiveKit o la autorización no están disponibles", "application/json",
+         Schemas.ErrorResponse}
+    ]
+  )
 
   def create(conn, %{"channel_id" => channel_id}) when is_binary(channel_id) do
     try do

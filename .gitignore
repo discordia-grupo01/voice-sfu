@@ -3,3 +3,9 @@
 *.log
 .DS_Store
 /api
+/.contract-venv/
+/signaling/contract-report/
+/.schemathesis/
+/signaling/.schemathesis/
+__pycache__/
+*.pyc
