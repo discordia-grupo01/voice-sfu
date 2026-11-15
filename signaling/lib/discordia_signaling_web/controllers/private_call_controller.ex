@@ -16,7 +16,7 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
       {"Destinatario y conversación", "application/json", Schemas.CallRequest, required: true},
     responses: [
       created: {"La llamada está sonando", "application/json", Schemas.Call},
-      bad_request: {"Datos inválidos", "application/json", Schemas.ErrorResponse},
+      bad_request: {"Datos inválidos", "application/json", Schemas.BadRequest},
       unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
       forbidden:
         {"La conversación no admite llamadas o hay un bloqueo (voice_call_forbidden)",

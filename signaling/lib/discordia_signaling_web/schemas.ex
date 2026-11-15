@@ -18,6 +18,36 @@ defmodule DiscordiaSignalingWeb.Schemas do
     })
   end
 
+  defmodule ParseError do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ParseError",
+      description:
+        "Cuerpo que no es JSON válido: lo rechaza Phoenix antes de llegar al controlador.",
+      type: :object,
+      properties: %{
+        errors: %Schema{
+          type: :object,
+          properties: %{detail: %Schema{type: :string, example: "Bad Request"}},
+          required: [:detail]
+        }
+      },
+      required: [:errors]
+    })
+  end
+
+  defmodule BadRequest do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "BadRequest",
+      description:
+        "Un código del servicio, o el error de Phoenix si el cuerpo no es JSON válido.",
+      oneOf: [ErrorResponse, ParseError]
+    })
+  end
+
   defmodule Health do
     require OpenApiSpex
 
@@ -113,8 +143,16 @@ defmodule DiscordiaSignalingWeb.Schemas do
       title: "CallRequest",
       type: :object,
       properties: %{
-        recipient_id: %Schema{type: :string, description: "Usuario al que se llama."},
-        conversation_id: %Schema{type: :string, description: "Conversación directa entre ambos."}
+        recipient_id: %Schema{
+          type: :string,
+          minLength: 1,
+          description: "Usuario al que se llama."
+        },
+        conversation_id: %Schema{
+          type: :string,
+          minLength: 1,
+          description: "Conversación directa entre ambos."
+        }
       },
       required: [:recipient_id, :conversation_id]
     })

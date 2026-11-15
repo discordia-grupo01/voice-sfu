@@ -56,6 +56,14 @@ components:
       type: object
       x-struct: Elixir.DiscordiaSignalingWeb.Schemas.AcceptedCall
       x-validate:
+    BadRequest:
+      description: Un código del servicio, o el error de Phoenix si el cuerpo no es JSON válido.
+      oneOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - $ref: '#/components/schemas/ParseError'
+      title: BadRequest
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.BadRequest
+      x-validate:
     Call:
       properties:
         call_id:
@@ -101,11 +109,13 @@ components:
       properties:
         conversation_id:
           description: Conversación directa entre ambos.
+          minLength: 1
           type: string
           x-struct:
           x-validate:
         recipient_id:
           description: Usuario al que se llama.
+          minLength: 1
           type: string
           x-struct:
           x-validate:
@@ -211,6 +221,27 @@ components:
       title: NotReady
       type: object
       x-struct: Elixir.DiscordiaSignalingWeb.Schemas.NotReady
+      x-validate:
+    ParseError:
+      description: 'Cuerpo que no es JSON válido: lo rechaza Phoenix antes de llegar al controlador.'
+      properties:
+        errors:
+          properties:
+            detail:
+              example: Bad Request
+              type: string
+              x-struct:
+              x-validate:
+          required:
+            - detail
+          type: object
+          x-struct:
+          x-validate:
+      required:
+        - errors
+      title: ParseError
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.ParseError
       x-validate:
     Participant:
       properties:
@@ -372,7 +403,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/BadRequest'
           description: Datos inválidos
         '401':
           content:
@@ -618,6 +649,7 @@ paths:
           name: server_id
           required: true
           schema:
+            minLength: 1
             type: string
             x-struct:
             x-validate:
@@ -632,7 +664,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/BadRequest'
           description: Falta server_id
         '401':
           content:
@@ -681,7 +713,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/BadRequest'
           description: Falta channel_id
         '401':
           content:
@@ -732,7 +764,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/BadRequest'
           description: Falta channel_id
         '401':
           content:
@@ -811,7 +843,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/BadRequest'
           description: Falta channel_id
         '401':
           content:

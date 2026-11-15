@@ -16,13 +16,13 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
       server_id: [
         in: :query,
         description: "Servidor del que se piden los participantes",
-        type: :string,
+        schema: %OpenApiSpex.Schema{type: :string, minLength: 1},
         required: true
       ]
     ],
     responses: [
       ok: {"Presencia por canal", "application/json", Schemas.Presence},
-      bad_request: {"Falta server_id", "application/json", Schemas.ErrorResponse},
+      bad_request: {"Falta server_id", "application/json", Schemas.BadRequest},
       unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
       forbidden:
         {"No es miembro del servidor (voice_forbidden)", "application/json",

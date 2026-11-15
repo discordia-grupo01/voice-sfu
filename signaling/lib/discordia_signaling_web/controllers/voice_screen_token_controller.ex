@@ -15,7 +15,7 @@ defmodule DiscordiaSignalingWeb.VoiceScreenTokenController do
     request_body: {"Canal de voz", "application/json", Schemas.ChannelRequest, required: true},
     responses: [
       ok: {"Token emitido", "application/json", Schemas.ScreenToken},
-      bad_request: {"Falta channel_id", "application/json", Schemas.ErrorResponse},
+      bad_request: {"Falta channel_id", "application/json", Schemas.BadRequest},
       unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
       forbidden:
         {"Sin acceso al canal (voice_forbidden) o un moderador lo silenció (voice_screen_share_forbidden)",
