@@ -1,8 +1,31 @@
 defmodule DiscordiaSignalingWeb.VoiceSessionController do
   use Phoenix.Controller, formats: [:json]
+  use OpenApiSpex.ControllerSpecs
 
   alias DiscordiaSignaling.Voice.VoiceAccess
   alias DiscordiaSignaling.Voice.VoiceSessionRegistry
+  alias DiscordiaSignalingWeb.Schemas
+
+  tags(["voice"])
+
+  operation(:delete,
+    summary: "Sale de un canal de voz",
+    description:
+      "Saca al usuario autenticado de la sala de LiveKit del canal. Es idempotente: si ya no estaba, responde igual 204.",
+    security: [%{"bearerAuth" => []}],
+    request_body: {"Canal de voz", "application/json", Schemas.ChannelRequest, required: true},
+    responses: [
+      no_content: "Salió de la sala, o ya no estaba",
+      bad_request: {"Falta channel_id", "application/json", Schemas.ErrorResponse},
+      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      forbidden:
+        {"El usuario no puede acceder al canal (voice_forbidden)", "application/json",
+         Schemas.ErrorResponse},
+      service_unavailable:
+        {"LiveKit o la autorización no están disponibles", "application/json",
+         Schemas.ErrorResponse}
+    ]
+  )
 
   def delete(conn, %{"channel_id" => channel_id}) when is_binary(channel_id) do
     try do
