@@ -4,29 +4,32 @@ services:
       context: ./signaling
       dockerfile: Dockerfile
     ports:
-      - "4000:4000"
+      - "${SIGNALING_PORT:-4000}:4000"
+    env_file:
+      - path: .env
+        required: false
     environment:
-      MIX_ENV: dev
       PORT: 4000
-      LIVEKIT_URL: ws://localhost:7880
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-clave_de_ejemplo_de_al_menos_64_caracteres_de_largo_para_pruebas_locales}
+      JWT_SECRET: ${JWT_SECRET:-clave_de_ejemplo_de_al_menos_64_caracteres_de_largo_para_pruebas_locales}
+      LIVEKIT_URL: ${LIVEKIT_PUBLIC_URL:-ws://host.docker.internal:7880}
       LIVEKIT_API_KEY: devkey
       LIVEKIT_API_SECRET: devsecret
-      VOICE_AUTHZ_MODE: servers_api
-      MESSAGING_URL: http://messaging:4000
-      SERVERS_URL: http://host.docker.internal:8080
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      VOICE_REPLICA_DATABASE_URL: postgres://discordia:discordia@db:5432/discordia_voice
-      VOICE_EVENTS_DATABASE_URL: postgres://discordia:discordia@db:5432/discordia_voice
+      VOICE_AUTHZ_MODE: ${VOICE_AUTHZ_MODE:-allow_authenticated}
+      MESSAGING_URL: ${MESSAGING_URL:-http://host.docker.internal:4000}
+      RABBITMQ_URL: ${RABBITMQ_URL_DOCKER:-amqp://guest:guest@host.docker.internal:5672/}
       EVENTS_EXCHANGE: discordia.events
-      JWT_SECRET: ${JWT_SECRET:-clave_de_ejemplo_de_al_menos_64_caracteres_de_largo_para_pruebas_locales}
-      SECRET_KEY_BASE: ${SECRET:-clave_de_ejemplo_de_al_menos_64_caracteres_de_largo_para_pruebas_locales}
+      ADMIN_EVENTS_HMAC_SECRET: ${ADMIN_EVENTS_HMAC_SECRET:-secreto-admin-solo-local}
+      VOICE_INSTANCE_ID: local-signaling-1
+      VOICE_REPLICA_DATABASE_URL: postgres://${DATABASE_USER:-discordia}:${DATABASE_PASSWORD:-discordia}@db:5432/${DATABASE_NAME:-discordia_voice}
+      VOICE_EVENTS_DATABASE_URL: postgres://${DATABASE_USER:-discordia}:${DATABASE_PASSWORD:-discordia}@db:5432/${DATABASE_NAME:-discordia_voice}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      livekit:
-        condition: service_started
-      rabbitmq:
-        condition: service_healthy
       db:
         condition: service_healthy
+      livekit:
+        condition: service_started
 
   livekit:
     image: livekit/livekit-server:latest
@@ -38,29 +41,18 @@ services:
       - "7881:7881"
       - "51000-51010:51000-51010/udp"
 
-  rabbitmq:
-    image: rabbitmq:3-management
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: discordia_voice
-      POSTGRES_USER: discordia
-      POSTGRES_PASSWORD: discordia
+      POSTGRES_DB: ${DATABASE_NAME:-discordia_voice}
+      POSTGRES_USER: ${DATABASE_USER:-discordia}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-discordia}
     ports:
-      - "5432:5432"
+      - "${DATABASE_PORT:-5434}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U discordia -d discordia_voice"]
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-discordia} -d ${DATABASE_NAME:-discordia_voice}"]
       interval: 5s
       timeout: 5s
       retries: 5
