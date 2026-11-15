@@ -1,380 +1,882 @@
-openapi: 3.0.3
+---
+components:
+  responses: {}
+  schemas:
+    AcceptedCall:
+      description: La llamada aceptada con las credenciales de LiveKit de quien acepta.
+      properties:
+        call_id:
+          type: string
+          x-struct:
+          x-validate:
+        caller_id:
+          type: string
+          x-struct:
+          x-validate:
+        conversation_id:
+          type: string
+          x-struct:
+          x-validate:
+        recipient_id:
+          type: string
+          x-struct:
+          x-validate:
+        room_name:
+          example: private-call:abc123
+          type: string
+          x-struct:
+          x-validate:
+        status:
+          enum:
+            - active
+          example: active
+          type: string
+          x-struct:
+          x-validate:
+        token:
+          description: JWT de LiveKit firmado para la sala.
+          type: string
+          x-struct:
+          x-validate:
+        url:
+          example: ws://localhost:7880
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - call_id
+        - conversation_id
+        - caller_id
+        - recipient_id
+        - room_name
+        - status
+        - token
+        - url
+      title: AcceptedCall
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.AcceptedCall
+      x-validate:
+    Call:
+      properties:
+        call_id:
+          type: string
+          x-struct:
+          x-validate:
+        caller_id:
+          type: string
+          x-struct:
+          x-validate:
+        conversation_id:
+          type: string
+          x-struct:
+          x-validate:
+        recipient_id:
+          type: string
+          x-struct:
+          x-validate:
+        room_name:
+          example: private-call:abc123
+          type: string
+          x-struct:
+          x-validate:
+        status:
+          enum:
+            - ringing
+          example: ringing
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - call_id
+        - conversation_id
+        - caller_id
+        - recipient_id
+        - room_name
+        - status
+      title: Call
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.Call
+      x-validate:
+    CallRequest:
+      properties:
+        conversation_id:
+          description: Conversación directa entre ambos.
+          type: string
+          x-struct:
+          x-validate:
+        recipient_id:
+          description: Usuario al que se llama.
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - recipient_id
+        - conversation_id
+      title: CallRequest
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.CallRequest
+      x-validate:
+    ChannelPresence:
+      properties:
+        channel_id:
+          type: string
+          x-struct:
+          x-validate:
+        participants:
+          items:
+            $ref: '#/components/schemas/Participant'
+          type: array
+          x-struct:
+          x-validate:
+        started_at:
+          description: Cuándo arrancó la sala; `null` si no se conoce.
+          format: date-time
+          nullable: true
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - channel_id
+        - started_at
+        - participants
+      title: ChannelPresence
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.ChannelPresence
+      x-validate:
+    ChannelRequest:
+      properties:
+        channel_id:
+          description: Canal de voz. La sala de LiveKit se llama `voice:<channel_id>`.
+          example: 550e8400-e29b-41d4-a716-446655440000
+          format: uuid
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - channel_id
+      title: ChannelRequest
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.ChannelRequest
+      x-validate:
+    ErrorResponse:
+      description: 'Error del servicio: un código en texto, por ejemplo `voice_forbidden` o `call_not_found`.'
+      properties:
+        error:
+          example: voice_forbidden
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - error
+      title: ErrorResponse
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.ErrorResponse
+      x-validate:
+    Health:
+      properties:
+        status:
+          example: ok
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - status
+      title: Health
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.Health
+      x-validate:
+    NotReady:
+      properties:
+        failed:
+          description: Dependencias que fallaron.
+          items:
+            enum:
+              - livekit
+              - servers
+              - replica_database
+            type: string
+            x-struct:
+            x-validate:
+          type: array
+          x-struct:
+          x-validate:
+        status:
+          example: unavailable
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - status
+        - failed
+      title: NotReady
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.NotReady
+      x-validate:
+    Participant:
+      properties:
+        name:
+          type: string
+          x-struct:
+          x-validate:
+        participant_id:
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - participant_id
+        - name
+      title: Participant
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.Participant
+      x-validate:
+    Presence:
+      properties:
+        channels:
+          items:
+            $ref: '#/components/schemas/ChannelPresence'
+          type: array
+          x-struct:
+          x-validate:
+        server_id:
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - server_id
+        - channels
+      title: Presence
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.Presence
+      x-validate:
+    ScreenToken:
+      properties:
+        identity:
+          example: user-42:screen
+          type: string
+          x-struct:
+          x-validate:
+        room_name:
+          example: voice:550e8400-e29b-41d4-a716-446655440000
+          type: string
+          x-struct:
+          x-validate:
+        token:
+          description: JWT de LiveKit que solo puede publicar screen_share y screen_share_audio.
+          type: string
+          x-struct:
+          x-validate:
+        url:
+          example: ws://localhost:7880
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - identity
+        - room_name
+        - token
+        - url
+      title: ScreenToken
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.ScreenToken
+      x-validate:
+    SocketTicket:
+      properties:
+        expires_in:
+          description: Segundos de validez.
+          example: 30
+          type: integer
+          x-struct:
+          x-validate:
+        ticket:
+          description: JWT de vida corta para abrir el socket de presencia de voz.
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - ticket
+        - expires_in
+      title: SocketTicket
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.SocketTicket
+      x-validate:
+    VoiceToken:
+      properties:
+        identity:
+          example: user-42
+          type: string
+          x-struct:
+          x-validate:
+        name:
+          example: Ada
+          type: string
+          x-struct:
+          x-validate:
+        room_name:
+          example: voice:550e8400-e29b-41d4-a716-446655440000
+          type: string
+          x-struct:
+          x-validate:
+        token:
+          description: JWT de LiveKit firmado para la sala.
+          type: string
+          x-struct:
+          x-validate:
+        url:
+          example: ws://localhost:7880
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - identity
+        - name
+        - room_name
+        - token
+        - url
+      title: VoiceToken
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.VoiceToken
+      x-validate:
+  securitySchemes:
+    bearerAuth:
+      bearerFormat: JWT
+      description: JWT HS256 firmado con JWT_SECRET (el mismo contrato que identify), con `sub` y `exp`.
+      scheme: bearer
+      type: http
 info:
+  description: 'Señalización de voz sobre LiveKit: emite los tokens para entrar a un canal de voz o compartir pantalla, maneja las llamadas privadas uno a uno y expone quién está conectado. La media viaja por LiveKit; la presencia en vivo, por el socket de Phoenix (`/voice/socket`), fuera de este contrato. Los errores de este servicio son `{"error": "<codigo>"}`.'
   title: Discordia - Voice Signaling API
-  version: "1.0.0"
+  version: 1.0.0
+openapi: 3.0.0
 paths:
-  /livez:
-    get:
-      summary: Liveness check
-      responses:
-        "200":
-          description: Service is alive
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: ok
-
-  /readyz:
-    get:
-      summary: Readiness check
-      description: >-
-        Checks LiveKit (an authenticated ListRooms call) and, when
-        VOICE_AUTHZ_MODE is servers_api, the liveness of the servers service.
-        It never shares logic with /livez.
-      responses:
-        "200":
-          description: Service dependencies are ready
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: ready
-        "503":
-          description: One or more dependencies are unavailable
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: unavailable
-                  failed:
-                    type: array
-                    items:
-                      type: string
-                      enum: [livekit, servers]
-
-  /api/voice/session:
-    delete:
-      summary: Leave a voice channel
-      description: Removes the authenticated participant from the requested LiveKit voice room.
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - channel_id
-              properties:
-                channel_id:
-                  type: string
-                  format: uuid
-      responses:
-        "204":
-          description: Participant disconnected successfully or was already absent.
-        "400":
-          description: Channel ID is missing.
-        "403":
-          description: User cannot access the voice channel.
-        "503":
-          description: Voice service is not available.
-
-  /api/voice/token:
-    post:
-      summary: Issue a LiveKit token for a voice channel
-      description: Authenticated users can request a short-lived LiveKit token for a specific voice channel. The service derives the room name as voice:<channel_id> and validates access before issuing the token.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - channel_id
-              properties:
-                channel_id:
-                  type: string
-                  format: uuid
-                  example: 550e8400-e29b-41d4-a716-446655440000
-      responses:
-        "200":
-          description: Token issued successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - identity
-                  - room_name
-                  - token
-                  - url
-                properties:
-                  identity:
-                    type: string
-                    example: user-42
-                  room_name:
-                    type: string
-                    example: voice:550e8400-e29b-41d4-a716-446655440000
-                  token:
-                    type: string
-                    description: Signed LiveKit JWT valid for the room
-                  url:
-                    type: string
-                    example: ws://localhost:7880
-        "400":
-          description: Missing or invalid channel_id
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    enum: [channel_id_required, invalid_channel_id]
-        "401":
-          description: Request is not authenticated
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: unauthorized
-        "403":
-          description: User is authenticated but not allowed in the requested voice room
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: voice_forbidden
-        "503":
-          description: LiveKit service is not configured or available
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: voice_not_configured
-
   /api/voice/calls:
     post:
-      summary: Start a private one-to-one voice call
-      description: Validates the direct conversation and both-direction block state before creating a private LiveKit room.
-      security:
-        - bearerAuth: []
+      callbacks: {}
+      description: Valida la conversación directa y que no haya bloqueos en ningún sentido antes de crear la sala privada de LiveKit. La llamada queda sonando 30 segundos.
+      operationId: DiscordiaSignalingWeb.PrivateCallController.create
+      parameters: []
       requestBody:
-        required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [recipient_id, conversation_id]
-              properties:
-                recipient_id: {type: string}
-                conversation_id: {type: string, format: uuid}
+              $ref: '#/components/schemas/CallRequest'
+        description: Destinatario y conversación
+        required: true
       responses:
-        "201": {description: Call is ringing}
-        "400": {description: Invalid payload}
-        "403": {description: Conversation is not callable or a user is blocked}
-        "409": {description: Another call already exists}
-
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Call'
+          description: La llamada está sonando
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Datos inválidos
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta el Bearer o es inválido
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: La conversación no admite llamadas o hay un bloqueo (voice_call_forbidden)
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Ya hay una llamada entre ambos (call_already_exists)
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: No se pudo validar el contacto (voice_unavailable)
+      security:
+        - bearerAuth: []
+      summary: Inicia una llamada privada uno a uno
+      tags:
+        - calls
   /api/voice/calls/{id}/accept:
     post:
-      summary: Accept a private voice call
-      security:
-        - bearerAuth: []
+      callbacks: {}
+      description: Quien acepta recibe sus credenciales de LiveKit; quien llamó recibe las suyas por el evento `private_call_accepted` del socket `voice_user:<user_id>`.
+      operationId: DiscordiaSignalingWeb.PrivateCallController.accept
       parameters:
-        - {name: id, in: path, required: true, schema: {type: string}}
-      description: >-
-        The caller receives its own token and url through the
-        private_call_accepted event on the voice_user:<user_id> socket topic.
+        - description: Identificador de la llamada
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            x-struct:
+            x-validate:
       responses:
-        "200":
-          description: LiveKit credentials for the accepted call
+        '200':
           content:
             application/json:
               schema:
-                type: object
-                required: [call_id, conversation_id, caller_id, recipient_id, room_name, status, token, url]
-                properties:
-                  call_id: {type: string}
-                  conversation_id: {type: string, format: uuid}
-                  caller_id: {type: string}
-                  recipient_id: {type: string}
-                  room_name: {type: string, example: "private-call:abc123"}
-                  status: {type: string, example: active}
-                  token:
-                    type: string
-                    description: Signed LiveKit JWT valid for the call room
-                  url:
-                    type: string
-                    example: ws://localhost:7880
-        "403": {description: User is not the recipient}
-        "404": {description: Call not found}
-        "409": {description: Call is no longer ringing}
-
-  /api/voice/calls/{id}/reject:
-    post:
-      summary: Decline or cancel a ringing private voice call
-      description: >-
-        The recipient declines the call, or the caller cancels it before it is
-        answered. Both participants receive private_call_rejected with reason
-        declined or cancelled and ended_by.
+                $ref: '#/components/schemas/AcceptedCall'
+          description: Credenciales de LiveKit de la llamada aceptada
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta el Bearer o es inválido
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: El usuario no es el destinatario (voice_call_forbidden)
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: La llamada no existe (call_not_found)
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: La llamada ya no está sonando (invalid_call_state)
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: LiveKit no está configurado (voice_unavailable)
       security:
         - bearerAuth: []
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string}}
-      responses:
-        "204": {description: Call rejected}
-        "403": {description: User is not a participant}
-        "404": {description: Call not found}
-        "409": {description: Call is no longer ringing}
-
+      summary: Acepta una llamada privada
+      tags:
+        - calls
   /api/voice/calls/{id}/finish:
     post:
-      summary: Finish an active private voice call
-      description: >-
-        Both participants receive private_call_ended with reason hangup and
-        ended_by.
-      security:
-        - bearerAuth: []
+      callbacks: {}
+      description: Ambos participantes reciben `private_call_ended` con motivo `hangup`.
+      operationId: DiscordiaSignalingWeb.PrivateCallController.finish
       parameters:
-        - {name: id, in: path, required: true, schema: {type: string}}
+        - description: Identificador de la llamada
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            x-struct:
+            x-validate:
       responses:
-        "204": {description: Call finished for both participants}
-        "403": {description: User is not a participant}
-        "404": {description: Call not found}
-        "409": {description: Call is not active}
-
-  /api/voice/calls/{id}/screen-token:
-    post:
-      summary: Issue a LiveKit token to share the phone screen in a private call
-      description: >-
-        Same companion token as /api/voice/screen-token, for a private call
-        instead of a server channel. Only a participant of an active call gets
-        it. The companion <user_id>:screen does not count as a participant when
-        abandoned calls are reconciled, and it is disconnected when the call
-        room is deleted.
-      security:
-        - bearerAuth: []
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string}}
-      responses:
-        "200":
-          description: Token issued successfully
+        '204':
+          description: Llamada terminada
+        '401':
           content:
             application/json:
               schema:
-                type: object
-                required: [identity, room_name, token, url]
-                properties:
-                  identity: {type: string, example: "user-42:screen"}
-                  room_name: {type: string, example: "private-call:abc123"}
-                  token:
-                    type: string
-                    description: Signed LiveKit JWT that can only publish screen_share and screen_share_audio
-                  url: {type: string, example: "ws://localhost:7880"}
-        "403": {description: User is not a participant (voice_call_forbidden)}
-        "404": {description: Call not found (call_not_found)}
-        "409": {description: Call is not active (invalid_call_state)}
-        "503": {description: LiveKit is not configured (voice_unavailable)}
-
-  /api/voice/screen-token:
-    post:
-      summary: Issue a LiveKit token to share the phone screen
-      description: >-
-        Used by the Android app, whose call runs in a WebView that cannot
-        capture the screen. The app joins the same room a second time with the
-        companion identity <user_id>:screen, which can only publish the screen
-        and never subscribes. The user must already be in the channel's room
-        and allowed to speak. The companion is not a participant: it is left
-        out of the voice presence, and it is removed when its owner leaves,
-        switches channel, is removed from the room or is muted.
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta el Bearer o es inválido
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: El usuario no participa de la llamada (voice_call_forbidden)
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: La llamada no existe (call_not_found)
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: La llamada no está activa (invalid_call_state)
       security:
         - bearerAuth: []
+      summary: Termina una llamada activa
+      tags:
+        - calls
+  /api/voice/calls/{id}/reject:
+    post:
+      callbacks: {}
+      description: El destinatario la rechaza, o quien llamó la cancela antes de que la atiendan. Ambos reciben `private_call_rejected`.
+      operationId: DiscordiaSignalingWeb.PrivateCallController.reject
+      parameters:
+        - description: Identificador de la llamada
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            x-struct:
+            x-validate:
+      responses:
+        '204':
+          description: Llamada rechazada
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta el Bearer o es inválido
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: El usuario no participa de la llamada (voice_call_forbidden)
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: La llamada no existe (call_not_found)
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: La llamada ya no está sonando (invalid_call_state)
+      security:
+        - bearerAuth: []
+      summary: Rechaza o cancela una llamada que está sonando
+      tags:
+        - calls
+  /api/voice/calls/{id}/screen-token:
+    post:
+      callbacks: {}
+      description: Igual que /api/voice/screen-token pero para una llamada privada. Solo lo recibe un participante de una llamada activa.
+      operationId: DiscordiaSignalingWeb.PrivateCallController.screen_token
+      parameters:
+        - description: Identificador de la llamada
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            x-struct:
+            x-validate:
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScreenToken'
+          description: Token emitido
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta el Bearer o es inválido
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: El usuario no participa de la llamada (voice_call_forbidden)
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: La llamada no existe (call_not_found)
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: La llamada no está activa (invalid_call_state)
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: LiveKit no está configurado (voice_unavailable)
+      security:
+        - bearerAuth: []
+      summary: Emite un token de LiveKit para compartir pantalla en una llamada privada
+      tags:
+        - calls
+  /api/voice/participants:
+    get:
+      callbacks: {}
+      description: Los participantes de cada canal de voz del servidor con la hora en que arrancó la sala. Con VOICE_AUTHZ_MODE=servers_api exige ser miembro del servidor.
+      operationId: DiscordiaSignalingWeb.VoicePresenceController.index
+      parameters:
+        - description: Servidor del que se piden los participantes
+          in: query
+          name: server_id
+          required: true
+          schema:
+            type: string
+            x-struct:
+            x-validate:
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Presence'
+          description: Presencia por canal
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta server_id
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta el Bearer o es inválido
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: No es miembro del servidor (voice_forbidden)
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: No se pudo comprobar la pertenencia (voice_unavailable)
+      security:
+        - bearerAuth: []
+      summary: Participantes conectados a los canales de voz de un servidor
+      tags:
+        - voice
+  /api/voice/screen-token:
+    post:
+      callbacks: {}
+      description: Lo usa la app Android, cuya llamada corre en un WebView que no puede capturar la pantalla. Entra a la misma sala una segunda vez con la identidad `<user_id>:screen`, que solo publica pantalla. El usuario ya tiene que estar en la sala del canal y poder hablar.
+      operationId: DiscordiaSignalingWeb.VoiceScreenTokenController.create
+      parameters: []
       requestBody:
-        required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - channel_id
-              properties:
-                channel_id:
-                  type: string
-                  format: uuid
+              $ref: '#/components/schemas/ChannelRequest'
+        description: Canal de voz
+        required: true
       responses:
-        "200":
-          description: Token issued successfully
+        '200':
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - identity
-                  - room_name
-                  - token
-                  - url
-                properties:
-                  identity:
-                    type: string
-                    example: user-42:screen
-                  room_name:
-                    type: string
-                    example: voice:550e8400-e29b-41d4-a716-446655440000
-                  token:
-                    type: string
-                    description: Signed LiveKit JWT that can only publish screen_share and screen_share_audio
-                  url:
-                    type: string
-                    example: ws://localhost:7880
-        "400":
-          description: Missing or invalid channel_id
+                $ref: '#/components/schemas/ScreenToken'
+          description: Token emitido
+        '400':
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    enum: [channel_id_required, invalid_channel_id]
-        "401":
-          description: Request is not authenticated
-        "403":
-          description: User cannot access the channel, or a moderator muted them
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta channel_id
+        '401':
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    enum: [voice_forbidden, voice_screen_share_forbidden]
-        "409":
-          description: User is not in that channel's voice room
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta el Bearer o es inválido
+        '403':
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: voice_not_in_channel
-        "503":
-          description: LiveKit service is not configured or available
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sin acceso al canal (voice_forbidden) o un moderador lo silenció (voice_screen_share_forbidden)
+        '409':
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    enum: [voice_not_configured, voice_unavailable]
+                $ref: '#/components/schemas/ErrorResponse'
+          description: El usuario no está en la sala de ese canal (voice_not_in_channel)
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: LiveKit o la autorización no están disponibles
+      security:
+        - bearerAuth: []
+      summary: Emite un token de LiveKit para compartir pantalla desde el celular
+      tags:
+        - voice
+  /api/voice/session:
+    delete:
+      callbacks: {}
+      description: 'Saca al usuario autenticado de la sala de LiveKit del canal. Es idempotente: si ya no estaba, responde igual 204.'
+      operationId: DiscordiaSignalingWeb.VoiceSessionController.delete
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelRequest'
+        description: Canal de voz
+        required: true
+      responses:
+        '204':
+          description: Salió de la sala, o ya no estaba
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta channel_id
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta el Bearer o es inválido
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: El usuario no puede acceder al canal (voice_forbidden)
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: LiveKit o la autorización no están disponibles
+      security:
+        - bearerAuth: []
+      summary: Sale de un canal de voz
+      tags:
+        - voice
+  /api/voice/socket-ticket:
+    post:
+      callbacks: {}
+      description: El navegador no puede mandar Authorization al abrir un WebSocket. El cliente pide acá un ticket de 30 segundos y conecta con él.
+      operationId: DiscordiaSignalingWeb.VoiceSocketTicketController.create
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SocketTicket'
+          description: Ticket emitido
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta el Bearer o es inválido
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: El servicio no tiene JWT_SECRET (voice_not_configured)
+      security:
+        - bearerAuth: []
+      summary: Emite un ticket para abrir el socket de presencia de voz
+      tags:
+        - voice
+  /api/voice/token:
+    post:
+      callbacks: {}
+      description: Valida el acceso al canal, emite un token de corta vida para la sala `voice:<channel_id>` y registra al usuario en ella (si estaba en otra sala, lo saca de la anterior).
+      operationId: DiscordiaSignalingWeb.VoiceTokenController.create
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelRequest'
+        description: Canal de voz
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoiceToken'
+          description: Token emitido
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta channel_id
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta el Bearer o es inválido
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: El usuario no puede entrar al canal (voice_forbidden)
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: LiveKit o la autorización no están disponibles
+      security:
+        - bearerAuth: []
+      summary: Emite un token de LiveKit para entrar a un canal de voz
+      tags:
+        - voice
+  /livez:
+    get:
+      callbacks: {}
+      operationId: DiscordiaSignalingWeb.HealthController.livez
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: Servicio vivo
+      security: []
+      summary: 'Liveness: el proceso responde, sin tocar ninguna dependencia'
+      tags:
+        - ops
+  /readyz:
+    get:
+      callbacks: {}
+      description: Chequea LiveKit (un ListRooms autenticado) y, con VOICE_AUTHZ_MODE=servers_api, que servers responda; con replica, la base de la réplica. No comparte lógica con /livez.
+      operationId: DiscordiaSignalingWeb.HealthController.readyz
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: Dependencias listas
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotReady'
+          description: Alguna dependencia no responde
+      security: []
+      summary: 'Readiness: LiveKit y, según VOICE_AUTHZ_MODE, servers o la réplica local'
+      tags:
+        - ops
+security: []
+servers:
+  - url: http://localhost:4000
+    variables: {}
+tags: []
