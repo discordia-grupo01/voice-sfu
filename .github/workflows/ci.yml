@@ -69,6 +69,94 @@ jobs:
       - name: Ejecutar tests y verificar cobertura minima (70%)
         run: mix test --cover
 
+  contract:
+    # Valida openapi.yaml contra el servicio real con Schemathesis. Corre en paralelo a `test`, con
+    # Postgres, RabbitMQ y un LiveKit en modo dev del propio runner, valores de juguete y sin secrets.*.
+    name: Contract Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    defaults:
+      run:
+        working-directory: signaling
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: discordia_voice
+          POSTGRES_USER: discordia
+          POSTGRES_PASSWORD: discordia
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U discordia"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      rabbitmq:
+        image: rabbitmq:3.13-management-alpine
+        ports: ["5672:5672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      APP_PORT: "18088"
+      DATABASE_URL: postgres://discordia:discordia@localhost:5432/discordia_voice
+      RABBITMQ_URL: amqp://guest:guest@localhost:5672
+      LIVEKIT_URL: ws://localhost:7880
+      CONTRACT_MAX_EXAMPLES: "25"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.17.3'
+          otp-version: '27'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Iniciar LiveKit (modo dev, claves de juguete)
+        run: |
+          docker run -d             --name livekit             --network host             livekit/livekit-server:latest             --dev --keys "devkey: devsecret"
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            signaling/deps
+            signaling/_build
+          key: ${{ runner.os }}-mix-contract-${{ hashFiles('signaling/mix.lock') }}
+
+      - name: Instalar dependencias
+        run: mix deps.get
+
+      - name: Verificar que openapi.yaml esta al dia
+        run: |
+          mix openapi.spec.yaml --spec DiscordiaSignalingWeb.ApiSpec ../openapi.yaml
+          git diff --exit-code -- ../openapi.yaml || { echo "openapi.yaml no coincide con el codigo: corre make openapi en signaling/ y commitea el resultado"; exit 1; }
+
+      - name: Instalar Schemathesis
+        run: |
+          python -m venv ../.contract-venv
+          ../.contract-venv/bin/pip install schemathesis==4.33.4
+
+      - name: Contrato (Schemathesis contra el servicio)
+        run: ./scripts/contract-test.sh
+
+      - name: Reporte de contrato
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-report
+          path: signaling/contract-report/
+          if-no-files-found: ignore
+
   publish-image:
     name: Publish Signaling Image
     needs: test

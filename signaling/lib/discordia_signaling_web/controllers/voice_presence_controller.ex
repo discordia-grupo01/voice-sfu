@@ -1,7 +1,37 @@
 defmodule DiscordiaSignalingWeb.VoicePresenceController do
   use Phoenix.Controller, formats: [:json]
+  use OpenApiSpex.ControllerSpecs
 
   alias DiscordiaSignaling.Voice.{MembershipCache, VoiceSessionRegistry}
+  alias DiscordiaSignalingWeb.Schemas
+
+  tags(["voice"])
+
+  operation(:index,
+    summary: "Participantes conectados a los canales de voz de un servidor",
+    description:
+      "Los participantes de cada canal de voz del servidor con la hora en que arrancó la sala. Con VOICE_AUTHZ_MODE=servers_api exige ser miembro del servidor.",
+    security: [%{"bearerAuth" => []}],
+    parameters: [
+      server_id: [
+        in: :query,
+        description: "Servidor del que se piden los participantes",
+        schema: %OpenApiSpex.Schema{type: :string, minLength: 1},
+        required: true
+      ]
+    ],
+    responses: [
+      ok: {"Presencia por canal", "application/json", Schemas.Presence},
+      bad_request: {"Falta server_id", "application/json", Schemas.BadRequest},
+      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      forbidden:
+        {"No es miembro del servidor (voice_forbidden)", "application/json",
+         Schemas.ErrorResponse},
+      service_unavailable:
+        {"No se pudo comprobar la pertenencia (voice_unavailable)", "application/json",
+         Schemas.ErrorResponse}
+    ]
+  )
 
   @servers_http_options [connect_timeout: 2_000, timeout: 4_000]
 
