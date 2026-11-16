@@ -23,7 +23,6 @@ defmodule DiscordiaSignaling.Application do
         presence_consumer(),
         event_consumer(),
         replica_consumer(),
-        suspension_versions(),
         suspension_consumer(),
         DiscordiaSignalingWeb.Endpoint
       ]
@@ -85,12 +84,9 @@ defmodule DiscordiaSignaling.Application do
     if url == "" do
       nil
     else
-      {DiscordiaSignaling.Events.PresenceConsumer, config}
+      {DiscordiaSignaling.Events.PresenceConsumer,
+       Keyword.put(config, :queue, queue_name(config, "presence"))}
     end
-  end
-
-  defp suspension_versions do
-    if suspension_secret() == "", do: nil, else: DiscordiaSignaling.Events.SuspensionVersions
   end
 
   defp suspension_consumer do

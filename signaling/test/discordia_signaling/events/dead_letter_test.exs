@@ -4,9 +4,21 @@ defmodule DiscordiaSignaling.Events.DeadLetterTest do
   alias DiscordiaSignaling.Events.DeadLetter
 
   setup do
+    previous_store = Application.get_env(:discordia_signaling, :voice_event_store)
+
+    Application.put_env(
+      :discordia_signaling,
+      :voice_event_store,
+      Elixir.DiscordiaSignaling.Events.DeadLetterAttemptStore
+    )
+
     on_exit(fn ->
       Application.delete_env(:discordia_signaling, :event_retry_delay_ms)
       Application.delete_env(:discordia_signaling, :event_max_attempts)
+
+      if previous_store,
+        do: Application.put_env(:discordia_signaling, :voice_event_store, previous_store),
+        else: Application.delete_env(:discordia_signaling, :voice_event_store)
     end)
   end
 
@@ -87,7 +99,7 @@ defmodule DiscordiaSignaling.Events.DeadLetterTest do
       attempts = DeadLetter.finish(:ack, state, %{delivery_tag: 7, routing_key: "k"}, "payload")
 
       assert_receive {:amqp_method, {:"basic.ack", 7, false}}
-      assert attempts == %{}
+      assert attempts == %{DeadLetter.identity("k", "payload") => 3}
     end
 
     test "a failed event goes back to its queue and its attempts are counted", %{state: state} do
@@ -95,25 +107,32 @@ defmodule DiscordiaSignaling.Events.DeadLetterTest do
 
       first = DeadLetter.finish(:retry, state, meta, "payload")
       assert_receive {:amqp_method, {:"basic.nack", 8, false, true}}
-      assert first == %{DeadLetter.identity("k", "payload") => 1}
+      assert first == %{}
 
       second = DeadLetter.finish(:retry, %{state | attempts: first}, meta, "payload")
       assert_receive {:amqp_method, {:"basic.nack", 8, false, true}}
-      assert second == %{DeadLetter.identity("k", "payload") => 2}
+      assert second == %{}
     end
 
-    test "the counters are cleared when too many events are being tracked", %{state: state} do
-      crowded = Map.new(1..1_024, fn n -> {"other-#{n}", 1} end)
+    test "retry counters are not kept in process state", %{state: state} do
+      attempts =
+        DeadLetter.finish(:retry, state, %{delivery_tag: 9, routing_key: "k"}, "payload")
+
+      assert attempts == %{}
+    end
+
+    test "requeues when persistent attempt tracking is unavailable", %{state: state} do
+      Application.put_env(
+        :discordia_signaling,
+        :voice_event_store,
+        Elixir.DiscordiaSignaling.Events.DeadLetterUnavailableAttemptStore
+      )
 
       attempts =
-        DeadLetter.finish(
-          :retry,
-          %{state | attempts: crowded},
-          %{delivery_tag: 9, routing_key: "k"},
-          "payload"
-        )
+        DeadLetter.finish(:retry, state, %{delivery_tag: 10, routing_key: "k"}, "payload")
 
-      assert attempts == %{DeadLetter.identity("k", "payload") => 1}
+      assert_receive {:amqp_method, {:"basic.nack", 10, false, true}}
+      assert attempts == %{}
     end
   end
 
@@ -121,4 +140,17 @@ defmodule DiscordiaSignaling.Events.DeadLetterTest do
     assert DeadLetter.queue_for("voice.signaling") == "voice.signaling.dlq"
     assert DeadLetter.exchange() == "discordia.dlx"
   end
+end
+
+defmodule DiscordiaSignaling.Events.DeadLetterAttemptStore do
+  def next_consumption_attempt(event_id, _error) do
+    key = {__MODULE__, event_id}
+    attempt = Process.get(key, 0) + 1
+    Process.put(key, attempt)
+    {:ok, attempt}
+  end
+end
+
+defmodule DiscordiaSignaling.Events.DeadLetterUnavailableAttemptStore do
+  def next_consumption_attempt(_event_id, _error), do: {:error, :unavailable}
 end

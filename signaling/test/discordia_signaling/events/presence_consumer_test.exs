@@ -60,11 +60,41 @@ defmodule DiscordiaSignaling.Events.PresenceConsumerTest do
     state = %{
       connection: nil,
       channel: nil,
-      queue: nil,
+      queue: "voice.signaling.presence",
       exchange: "discordia.events",
-      url: "amqp://test"
+      url: "amqp://test",
+      attempts: %{}
     }
 
     assert {:noreply, ^state} = PresenceConsumer.handle_info({:basic_consume_ok, %{}}, state)
+  end
+
+  test "reconnects after the broker connection goes down" do
+    state = %{
+      connection: :old,
+      channel: :channel,
+      queue: "q",
+      exchange: "e",
+      url: "u",
+      attempts: %{}
+    }
+
+    assert {:noreply, updated} =
+             PresenceConsumer.handle_info({:DOWN, make_ref(), :process, self(), :closed}, state)
+
+    assert updated.connection == nil
+    assert updated.channel == nil
+    assert_receive :connect
+  end
+
+  test "stops cleanly when the broker cancels the consumer" do
+    state = %{connection: nil, channel: nil, queue: "q", exchange: "e", url: "u", attempts: %{}}
+
+    assert {:stop, :normal, ^state} =
+             PresenceConsumer.handle_info({:basic_cancel, %{}}, state)
+  end
+
+  test "terminates without a broker connection" do
+    assert :ok = PresenceConsumer.terminate(:normal, %{connection: nil})
   end
 end

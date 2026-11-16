@@ -8,6 +8,15 @@ defmodule DiscordiaSignaling.Events.EventAuditTest do
       Application.get_env(:discordia_signaling, :test_audit_begin, :new)
     end
 
+    defmodule InvalidStore do
+      def begin_consumption(_event_id, _event_type, _payload), do: :new
+
+      def complete_consumption(event_id, status, error) do
+        send(self(), {:audit_completed, event_id, status, error})
+        :ok
+      end
+    end
+
     def complete_consumption(event_id, status, error) do
       send(self(), {:audit_completed, event_id, status, error})
       Application.get_env(:discordia_signaling, :test_audit_complete, :ok)
@@ -75,6 +84,17 @@ defmodule DiscordiaSignaling.Events.EventAuditTest do
 
     assert :ack =
              EventAudit.process("voice.participant_joined", ~s({"event_id":""}), fn -> :retry end)
+  end
+
+  test "audits malformed events with a deterministic id" do
+    Application.put_env(
+      :discordia_signaling,
+      :voice_event_store,
+      DiscordiaSignaling.Events.EventAuditTest.Store.InvalidStore
+    )
+
+    assert :ack = EventAudit.process("voice.participant_joined", "not-json", fn -> :retry end)
+    assert_receive {:audit_completed, "invalid:" <> _, "invalid", "invalid_event"}
   end
 
   defp valid_payload do

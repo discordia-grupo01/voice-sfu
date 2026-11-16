@@ -10,7 +10,6 @@ defmodule DiscordiaSignaling.Events.DeadLetter do
   @default_base_delay_ms 1_000
   @max_delay_ms 30_000
   @jitter 0.2
-  @max_tracked 1_024
   @confirm_timeout_ms 5_000
 
   def exchange, do: @exchange
@@ -41,34 +40,41 @@ defmodule DiscordiaSignaling.Events.DeadLetter do
     :crypto.hash(:sha256, [routing_key, 0, payload]) |> Base.encode16(case: :lower)
   end
 
-  def finish(:ack, state, meta, payload) do
+  def finish(:ack, state, meta, _payload) do
     AMQP.Basic.ack(state.channel, meta.delivery_tag)
-    Map.delete(state.attempts, identity(meta.routing_key, payload))
+    state.attempts
   end
 
   def finish(:retry, state, meta, payload) do
     key = identity(meta.routing_key, payload)
-    attempt = Map.get(state.attempts, key, 0) + 1
 
-    case move_if_exhausted(state, meta, payload, attempt) do
-      :moved ->
-        AMQP.Basic.ack(state.channel, meta.delivery_tag)
-        Map.delete(state.attempts, key)
+    case next_attempt(payload, key) do
+      {:ok, attempt} ->
+        case move_if_exhausted(state, meta, payload, attempt) do
+          :moved ->
+            AMQP.Basic.ack(state.channel, meta.delivery_tag)
+            state.attempts
 
-      :retry ->
-        wait = delay(attempt, :rand.uniform())
+          :retry ->
+            wait = delay(attempt, :rand.uniform())
 
-        Logger.warning("event_attempt_failed",
-          queue: state.queue,
-          routing_key: meta.routing_key,
-          event_id: event_id(payload),
-          attempt: attempt,
-          retry_in_ms: wait
-        )
+            Logger.warning("event_attempt_failed",
+              queue: state.queue,
+              routing_key: meta.routing_key,
+              event_id: event_id(payload),
+              attempt: attempt,
+              retry_in_ms: wait
+            )
 
-        Process.sleep(wait)
+            Process.sleep(wait)
+            AMQP.Basic.nack(state.channel, meta.delivery_tag, requeue: true)
+            state.attempts
+        end
+
+      {:error, reason} ->
+        Logger.warning("event_attempt_persistence_failed", reason: Log.reason(reason))
         AMQP.Basic.nack(state.channel, meta.delivery_tag, requeue: true)
-        track(state.attempts, key, attempt)
+        state.attempts
     end
   end
 
@@ -99,11 +105,6 @@ defmodule DiscordiaSignaling.Events.DeadLetter do
       :retry
     end
   end
-
-  defp track(attempts, key, attempt) when map_size(attempts) >= @max_tracked,
-    do: Map.put(%{}, key, attempt)
-
-  defp track(attempts, key, attempt), do: Map.put(attempts, key, attempt)
 
   defp publish(conn, queue, meta, payload, attempt) do
     with {:ok, chan} <- AMQP.Channel.open(conn) do
@@ -155,6 +156,22 @@ defmodule DiscordiaSignaling.Events.DeadLetter do
       {:ok, %{"event_id" => id}} when is_binary(id) -> id
       _other -> nil
     end
+  end
+
+  defp next_attempt(payload, fallback_id) do
+    id = event_id(payload) || fallback_id
+
+    event_store().next_consumption_attempt(id, "delivery_failed")
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
+  defp event_store do
+    Application.get_env(
+      :discordia_signaling,
+      :voice_event_store,
+      DiscordiaSignaling.Voice.ReplicaStore
+    )
   end
 
   defp close(chan) do

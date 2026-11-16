@@ -12,7 +12,7 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Events.{Contract, EventAudit, RabbitMQ}
+  alias DiscordiaSignaling.Events.{Contract, DeadLetter, EventAudit, RabbitMQ}
   alias DiscordiaSignaling.Log
   alias DiscordiaSignaling.Tracing
   alias DiscordiaSignaling.Voice.{PrivateCall, VoiceSessionRegistry}
@@ -29,9 +29,10 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
     state = %{
       url: Keyword.fetch!(opts, :rabbitmq_url),
       exchange: Keyword.get(opts, :exchange, @default_exchange),
-      queue: nil,
+      queue: Keyword.get(opts, :queue, "voice.signaling.presence"),
       connection: nil,
-      channel: nil
+      channel: nil,
+      attempts: %{}
     }
 
     send(self(), :connect)
@@ -67,15 +68,14 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
   @impl true
   def handle_info({:basic_deliver, payload, meta}, state) do
     Tracing.consumer_span(meta, state.queue, fn ->
-      case EventAudit.process(meta.routing_key, payload, fn ->
-             process_payload(meta.routing_key, payload)
-           end) do
-        :ack -> AMQP.Basic.ack(state.channel, meta.delivery_tag)
-        _ -> AMQP.Basic.nack(state.channel, meta.delivery_tag, requeue: true)
-      end
-    end)
+      result =
+        EventAudit.process(meta.routing_key, payload, fn ->
+          process_payload(meta.routing_key, payload)
+        end)
 
-    {:noreply, state}
+      attempts = DeadLetter.finish(result, state, meta, payload)
+      {:noreply, %{state | attempts: attempts}}
+    end)
   end
 
   def handle_info({:basic_consume_ok, _meta}, state), do: {:noreply, state}
@@ -115,10 +115,11 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
     with {:ok, connection} <- RabbitMQ.open(state.url),
          {:ok, channel} <- AMQP.Channel.open(connection),
          :ok <- AMQP.Exchange.declare(channel, state.exchange, :topic, durable: true),
-         {:ok, %{queue: queue}} <- AMQP.Queue.declare(channel, "", exclusive: true),
-         :ok <- bind(channel, queue, state.exchange),
-         {:ok, _} <- AMQP.Basic.consume(channel, queue) do
-      {:ok, connection, channel, queue}
+         {:ok, _} <- AMQP.Queue.declare(channel, state.queue, durable: true),
+         :ok <- DeadLetter.declare(channel, state.queue),
+         :ok <- bind(channel, state.queue, state.exchange),
+         {:ok, _} <- AMQP.Basic.consume(channel, state.queue) do
+      {:ok, connection, channel, state.queue}
     end
   end
 
