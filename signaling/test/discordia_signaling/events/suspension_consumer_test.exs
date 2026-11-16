@@ -9,12 +9,34 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
   @secret "test-secret"
   @key "admin.user_suspended"
 
+  defmodule TestStore do
+    def newer_version(key, version) do
+      versions = Application.get_env(:discordia_signaling, :test_suspension_versions, %{})
+      {:ok, version > Map.get(versions, key, -1)}
+    end
+
+    def record_version(key, version) do
+      versions = Application.get_env(:discordia_signaling, :test_suspension_versions, %{})
+      current = Map.get(versions, key, -1)
+
+      Application.put_env(
+        :discordia_signaling,
+        :test_suspension_versions,
+        Map.put(versions, key, max(current, version))
+      )
+
+      :ok
+    end
+  end
+
   setup do
     previous_room_service_result =
       Application.get_env(:discordia_signaling, :test_room_service_result)
 
     Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
-    start_supervised!(SuspensionVersions)
+    previous_store = Application.get_env(:discordia_signaling, :voice_event_store)
+    Application.put_env(:discordia_signaling, :voice_event_store, TestStore)
+    Application.delete_env(:discordia_signaling, :test_suspension_versions)
 
     on_exit(fn ->
       if previous_room_service_result do
@@ -26,6 +48,12 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
       else
         Application.delete_env(:discordia_signaling, :test_room_service_result)
       end
+
+      if previous_store,
+        do: Application.put_env(:discordia_signaling, :voice_event_store, previous_store),
+        else: Application.delete_env(:discordia_signaling, :voice_event_store)
+
+      Application.delete_env(:discordia_signaling, :test_suspension_versions)
     end)
 
     :ok
@@ -147,7 +175,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
 
   test "acks a user who is not in any room" do
     assert :ack = process(signed_payload("idle-user", 1))
-    refute SuspensionVersions.newer?("idle-user", 1)
+    assert {:ok, false} = SuspensionVersions.newer?("idle-user", 1)
   end
 
   test "acks when LiveKit no longer has the participant" do
@@ -165,7 +193,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
 
     assert :retry = process(payload)
     assert VoiceSessionRegistry.active_room("retry-user") == "voice:room-suspension"
-    assert SuspensionVersions.newer?("retry-user", 1)
+    assert {:ok, true} = SuspensionVersions.newer?("retry-user", 1)
 
     Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
 
@@ -210,7 +238,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
       end)
 
     assert VoiceSessionRegistry.active_room("safe-user") == "voice:room-suspension"
-    assert SuspensionVersions.newer?("safe-user", 1)
+    assert {:ok, true} = SuspensionVersions.newer?("safe-user", 1)
     assert log =~ "voice_suspension_invalid_signature"
   end
 
@@ -269,7 +297,13 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
 
       text =
         Enum.join(
-          [routing_key, event["event_id"], server_id, Integer.to_string(version), event["occurred_at"]],
+          [
+            routing_key,
+            event["event_id"],
+            server_id,
+            Integer.to_string(version),
+            event["occurred_at"]
+          ],
           "\n"
         )
 
@@ -281,7 +315,11 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
       do: SuspensionConsumer.process_payload(routing_key, Jason.encode!(event), secret)
 
     defp suspend_server(server_id, version),
-      do: process_server(@server_suspended, signed_server_event(@server_suspended, server_id, version))
+      do:
+        process_server(
+          @server_suspended,
+          signed_server_event(@server_suspended, server_id, version)
+        )
 
     test "closes every room of the suspended server and leaves other servers alone" do
       join_server("sv-user-1", "sv-room-a", "sv-server-1")
@@ -341,7 +379,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
 
     test "acks a server with no rooms and remembers the version" do
       assert :ack = suspend_server("sv-empty", 1)
-      refute SuspensionVersions.newer?({:server, "sv-empty"}, 1)
+      assert {:ok, false} = SuspensionVersions.newer?({:server, "sv-empty"}, 1)
     end
 
     test "a duplicate or older version expels nobody and leaves the cache alone" do
@@ -366,7 +404,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
 
       assert :retry = suspend_server("sv-retry", 1)
       assert VoiceSessionRegistry.active_room("sv-retry-user") == "voice:sv-retry-room"
-      assert SuspensionVersions.newer?({:server, "sv-retry"}, 1)
+      assert {:ok, true} = SuspensionVersions.newer?({:server, "sv-retry"}, 1)
 
       Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
 
@@ -392,7 +430,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
                )
 
       assert VoiceSessionRegistry.active_room("sv-react-user") == "voice:sv-react-room"
-      refute SuspensionVersions.newer?({:server, "sv-react"}, 2)
+      assert {:ok, false} = SuspensionVersions.newer?({:server, "sv-react"}, 2)
     end
 
     test "a suspension older than the reactivation, arriving late, expels nobody" do
@@ -434,7 +472,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
         end)
 
       assert VoiceSessionRegistry.active_room("sv-safe-user") == "voice:sv-safe-room"
-      assert SuspensionVersions.newer?({:server, "sv-safe"}, 1)
+      assert {:ok, true} = SuspensionVersions.newer?({:server, "sv-safe"}, 1)
       assert log =~ "voice_suspension_invalid_signature"
     end
 
@@ -465,7 +503,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
       end
 
       assert VoiceSessionRegistry.active_room("sv-bad-user") == "voice:sv-bad-room"
-      assert SuspensionVersions.newer?({:server, "sv-bad"}, 1)
+      assert {:ok, true} = SuspensionVersions.newer?({:server, "sv-bad"}, 1)
     end
 
     test "discards broken JSON and payloads that are not objects" do

@@ -9,25 +9,30 @@ defmodule DiscordiaSignaling.Events.EventAudit do
 
   alias DiscordiaSignaling.Voice.ReplicaStore
 
-  @spec process(String.t(), binary(), (-> :ack | :retry | term())) :: :ack | :retry
+  @spec process(String.t(), binary(), (-> :ack | :retry | :invalid | term())) ::
+          :ack | :retry
   def process(routing_key, payload, fun) when is_binary(routing_key) and is_binary(payload) do
-    case Jason.decode(payload) do
-      {:ok, %{"event_id" => event_id}} when is_binary(event_id) and event_id != "" ->
-        with {:new, _} <- begin(event_id, routing_key, payload) do
-          result = normalize(fun.())
-          status = if result == :ack, do: "processed", else: "failed"
+    event_id = audit_id(payload)
 
-          case event_store().complete_consumption(event_id, status, error(result)) do
-            :ok -> result
-            {:error, _reason} -> :retry
-          end
-        else
-          {:processed, _} -> :ack
-          {:error, _reason} -> :retry
+    with {:new, ^event_id} <- begin(event_id, routing_key, payload) do
+      result =
+        case Jason.decode(payload) do
+          {:ok, %{"event_id" => id}} when is_binary(id) and id != "" -> normalize(fun.())
+          _ -> :invalid
         end
 
-      _ ->
-        :ack
+      status =
+        if result == :ack,
+          do: "processed",
+          else: if(result == :invalid, do: "invalid", else: "failed")
+
+      case event_store().complete_consumption(event_id, status, error(result)) do
+        :ok -> result_to_ack(result)
+        {:error, _reason} -> :retry
+      end
+    else
+      {:processed, _} -> :ack
+      {:error, _reason} -> :retry
     end
   end
 
@@ -41,10 +46,22 @@ defmodule DiscordiaSignaling.Events.EventAudit do
 
   defp normalize(:ack), do: :ack
   defp normalize(:retry), do: :retry
+  defp normalize(:invalid), do: :retry
   defp normalize(_other), do: :retry
 
   defp error(:ack), do: nil
+  defp error(:invalid), do: "invalid_event"
   defp error(result), do: inspect(result)
+
+  defp result_to_ack(:invalid), do: :ack
+  defp result_to_ack(result), do: result
+
+  defp audit_id(payload) do
+    case Jason.decode(payload) do
+      {:ok, %{"event_id" => event_id}} when is_binary(event_id) and event_id != "" -> event_id
+      _ -> "invalid:" <> Base.encode16(:crypto.hash(:sha256, payload), case: :lower)
+    end
+  end
 
   defp event_store do
     Application.get_env(
