@@ -15,19 +15,21 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
-  @spec publish(map()) :: :ok
+  @spec publish(map()) :: :ok | {:error, term()}
   def publish(event) when is_map(event) do
     if broker_url() != nil do
       case enqueue_outbox(event) do
         :ok ->
           if Process.whereis(__MODULE__) != nil, do: send(__MODULE__, :drain)
+          :ok
 
         {:error, reason} ->
           Logger.error("voice_presence_outbox_enqueue_failed", reason: Log.reason(reason))
+          {:error, reason}
       end
+    else
+      :ok
     end
-
-    :ok
   end
 
   @impl true
