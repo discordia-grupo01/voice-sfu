@@ -33,10 +33,33 @@ defmodule DiscordiaSignaling.Voice.ReplicaStoreTest do
              )
 
     assert {:reply, {:error, :unavailable}, ^state} =
+             ReplicaStore.handle_call(
+               {:next_consumption_attempt, "event-1", nil},
+               self(),
+               state
+             )
+
+    assert {:reply, {:error, :unavailable}, ^state} =
+             ReplicaStore.handle_call({:newer_version, "user-1", 1}, self(), state)
+
+    assert {:reply, {:error, :unavailable}, ^state} =
+             ReplicaStore.handle_call({:record_version, "user-1", 1}, self(), state)
+
+    assert {:reply, {:error, :unavailable}, ^state} =
              ReplicaStore.handle_call({:apply, "servers.role_updated", %{}}, self(), state)
 
     assert {:reply, {:error, :unavailable}, ^state} =
              ReplicaStore.handle_call({:authorize, "channel-1", "user-1"}, self(), state)
+  end
+
+  test "rejects invalid persistent version subjects before querying PostgreSQL" do
+    state = %{conn: :stand_in}
+
+    assert {:reply, {:error, :invalid_subject}, ^state} =
+             ReplicaStore.handle_call({:newer_version, {:invalid, "subject"}, 1}, self(), state)
+
+    assert {:reply, {:error, :invalid_subject}, ^state} =
+             ReplicaStore.handle_call({:record_version, {:invalid, "subject"}, 1}, self(), state)
   end
 
   test "reconnects after the database process goes down" do

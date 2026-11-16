@@ -38,6 +38,14 @@ if rabbitmq_url do
     test "an event that keeps failing ends up in the dead letter queue with its headers", ctx do
       %{conn: conn, chan: chan, queue: queue} = ctx
       payload = Jason.encode!(%{"event_id" => "evt-voice", "server_id" => "srv-1"})
+
+      :new =
+        DiscordiaSignaling.Voice.ReplicaStore.begin_consumption(
+          "evt-voice",
+          "servers.member_muted",
+          payload
+        )
+
       :ok = AMQP.Basic.publish(chan, "", queue, payload, persistent: true)
 
       state = %{connection: conn, channel: chan, queue: queue, attempts: %{}}
@@ -52,7 +60,9 @@ if rabbitmq_url do
       assert final.attempts == %{}
       assert {:empty, _meta} = AMQP.Basic.get(chan, queue)
 
-      assert {:ok, ^payload, meta} = AMQP.Basic.get(chan, DeadLetter.queue_for(queue), no_ack: true)
+      assert {:ok, ^payload, meta} =
+               AMQP.Basic.get(chan, DeadLetter.queue_for(queue), no_ack: true)
+
       headers = Map.new(meta.headers, fn {name, _type, value} -> {name, value} end)
       assert headers["x-original-queue"] == queue
       assert headers["x-original-routing-key"] == "servers.member_muted"

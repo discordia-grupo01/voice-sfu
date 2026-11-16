@@ -1,7 +1,7 @@
 defmodule DiscordiaSignaling.Integration.VoiceSuspensionRabbitMQTest do
   use ExUnit.Case, async: false
 
-  alias DiscordiaSignaling.Events.{SuspensionConsumer, SuspensionVersions}
+  alias DiscordiaSignaling.Events.SuspensionConsumer
   alias DiscordiaSignaling.Voice.VoiceSessionRegistry
 
   @moduletag :integration
@@ -34,14 +34,13 @@ defmodule DiscordiaSignaling.Integration.VoiceSuspensionRabbitMQTest do
       end
     end)
 
-    start_supervised!(SuspensionVersions)
-
     queue = "voice.integration.suspensions." <> unique_suffix()
 
     {:ok, connection} = AMQP.Connection.open(rabbitmq_url)
     {:ok, channel} = AMQP.Channel.open(connection)
     :ok = AMQP.Exchange.declare(channel, @exchange, :topic, durable: true)
     {:ok, _} = AMQP.Queue.declare(channel, queue, durable: true)
+
     for key <- [@key, @server_key, @server_reactivated_key] do
       :ok = AMQP.Queue.bind(channel, queue, @exchange, routing_key: key)
     end
@@ -113,12 +112,17 @@ defmodule DiscordiaSignaling.Integration.VoiceSuspensionRabbitMQTest do
     join_server(probe_user, "room-probe", "server-" <> unique_suffix())
 
     reactivated = server_event(@server_reactivated_key, server_id, 2, @secret)
-    :ok = AMQP.Basic.publish(channel, @exchange, @server_reactivated_key, Jason.encode!(reactivated))
+
+    :ok =
+      AMQP.Basic.publish(channel, @exchange, @server_reactivated_key, Jason.encode!(reactivated))
+
     old = server_event(@server_key, server_id, 1, @secret)
     :ok = AMQP.Basic.publish(channel, @exchange, @server_key, Jason.encode!(old))
 
     # The probe goes through the same queue and consumer, after the two above.
-    :ok = AMQP.Basic.publish(channel, @exchange, @key, Jason.encode!(event(probe_user, 1, @secret)))
+    :ok =
+      AMQP.Basic.publish(channel, @exchange, @key, Jason.encode!(event(probe_user, 1, @secret)))
+
     wait_until(fn -> VoiceSessionRegistry.active_room(probe_user) == nil end)
 
     assert VoiceSessionRegistry.active_room(user_id) == "voice:room-late"
@@ -134,7 +138,13 @@ defmodule DiscordiaSignaling.Integration.VoiceSuspensionRabbitMQTest do
 
     text =
       Enum.join(
-        [routing_key, event["event_id"], server_id, Integer.to_string(version), event["occurred_at"]],
+        [
+          routing_key,
+          event["event_id"],
+          server_id,
+          Integer.to_string(version),
+          event["occurred_at"]
+        ],
         "\n"
       )
 

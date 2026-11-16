@@ -109,8 +109,10 @@ Además de la salida estándar, el servicio puede enviar sus logs al Log API de 
   projection. The signaling process creates its `voice_replica_*` tables on
   connection and never writes the `servers` database.
 - `VOICE_EVENTS_DATABASE_URL`: PostgreSQL URL for the voice outbox and
-  `voice_consumed_events` audit log. Defaults to `VOICE_REPLICA_DATABASE_URL`
-  and is independent from the `servers` database.
+  `voice_consumed_events` audit log. It also stores delivery attempts and
+  moderation versions so retries and duplicate suppression survive restarts.
+  Defaults to `VOICE_REPLICA_DATABASE_URL` and is independent from the
+  `servers` database.
 - `PHOENIX_CHECK_ORIGINS`: comma-separated browser origins allowed to open
   Phoenix sockets. Local defaults are `http://localhost:3000` and
   `http://127.0.0.1:3000`; production must include the exact HTTPS origin of
@@ -168,6 +170,12 @@ only when their `occurred_at` is newer than the local snapshot, so duplicate
 and out-of-order deliveries do not overwrite newer state. Control events use
 the same per-instance queue strategy; PubSub remains a local delivery
 optimization and is not the replication mechanism.
+
+Presence queues are durable and have a matching `.dlq` queue on
+`discordia.dlx`. All voice consumers audit messages in `voice_consumed_events`;
+delivery attempts are persisted there, so a process restart cannot reset the
+retry limit before a message is moved to the DLQ. Invalid payloads are also
+audited instead of being silently discarded.
 
 When a node starts, `VoicePresenceReconciler` asks LiveKit for the current
 rooms and participants and rebuilds the local snapshot. It retries while

@@ -5,6 +5,7 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisherTest do
 
   setup do
     previous_events = Application.get_env(:discordia_signaling, :events)
+    previous_store = Application.get_env(:discordia_signaling, :voice_event_store)
     Application.put_env(:discordia_signaling, :events, [])
 
     on_exit(fn ->
@@ -13,6 +14,10 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisherTest do
       else
         Application.delete_env(:discordia_signaling, :events)
       end
+
+      if previous_store,
+        do: Application.put_env(:discordia_signaling, :voice_event_store, previous_store),
+        else: Application.delete_env(:discordia_signaling, :voice_event_store)
     end)
 
     :ok
@@ -92,7 +97,30 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisherTest do
 
   test "publish is a no-op when no publisher process is running" do
     Application.put_env(:discordia_signaling, :events, rabbitmq_url: "amqp://unused")
+
+    Application.put_env(
+      :discordia_signaling,
+      :voice_event_store,
+      Elixir.DiscordiaSignaling.Voice.NoopStore
+    )
+
     assert :ok = VoicePresencePublisher.publish(%{"event_type" => "voice.test"})
+  end
+
+  test "returns an outbox error instead of hiding it" do
+    Application.put_env(:discordia_signaling, :events, rabbitmq_url: "amqp://unused")
+
+    Application.put_env(
+      :discordia_signaling,
+      :voice_event_store,
+      DiscordiaSignaling.Voice.EnqueueUnavailableStore
+    )
+
+    assert {:error, :unavailable} =
+             VoicePresencePublisher.publish(%{
+               "event_id" => "event-1",
+               "event_type" => "voice.test"
+             })
   end
 
   test "terminates cleanly without an AMQP connection" do
@@ -107,4 +135,12 @@ end
 
 defmodule DiscordiaSignaling.Voice.OutboxUnavailableStore do
   def pending_outbox(_limit), do: {:error, :unavailable}
+end
+
+defmodule DiscordiaSignaling.Voice.EnqueueUnavailableStore do
+  def enqueue_outbox(_event), do: {:error, :unavailable}
+end
+
+defmodule DiscordiaSignaling.Voice.NoopStore do
+  def enqueue_outbox(_event), do: :ok
 end

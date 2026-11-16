@@ -146,48 +146,59 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
   end
 
   defp apply_event({:suspend_user, user_id, version}) do
-    if SuspensionVersions.newer?(user_id, version) do
+    with {:ok, true} <- SuspensionVersions.newer?(user_id, version) do
       # Before anything that can fail and be retried: a membership confirmed
       # before the suspension must not keep answering for up to its TTL.
       MembershipCache.forget_user(user_id)
 
       case remove_from_room(user_id) do
         :ok ->
-          SuspensionVersions.record(user_id, version)
-          :ack
+          case SuspensionVersions.record(user_id, version) do
+            :ok -> :ack
+            {:error, _reason} -> :retry
+          end
 
         {:error, _reason} ->
           :retry
       end
     else
-      :ack
+      {:ok, false} -> :ack
+      {:error, _reason} -> :retry
     end
   end
 
   defp apply_event({:suspend_server, server_id, version}) do
     key = {:server, server_id}
 
-    if SuspensionVersions.newer?(key, version) do
+    with {:ok, true} <- SuspensionVersions.newer?(key, version) do
       # Before anything that can fail and be retried, like the user case.
       MembershipCache.forget_server(server_id)
 
       case close_server_rooms(server_id) do
         {:ok, closed} ->
-          SuspensionVersions.record(key, version)
-          Logger.info("voice_server_suspended", server_id: server_id, rooms_closed: closed)
-          :ack
+          case SuspensionVersions.record(key, version) do
+            :ok ->
+              Logger.info("voice_server_suspended", server_id: server_id, rooms_closed: closed)
+              :ack
+
+            {:error, _reason} ->
+              :retry
+          end
 
         {:error, _reason} ->
           :retry
       end
     else
-      :ack
+      {:ok, false} -> :ack
+      {:error, _reason} -> :retry
     end
   end
 
   defp apply_event({:reactivate_server, server_id, version}) do
-    SuspensionVersions.record({:server, server_id}, version)
-    :ack
+    case SuspensionVersions.record({:server, server_id}, version) do
+      :ok -> :ack
+      {:error, _reason} -> :retry
+    end
   end
 
   defp apply_event({:error, _reason}), do: :ack

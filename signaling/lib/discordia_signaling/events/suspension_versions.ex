@@ -1,31 +1,18 @@
 defmodule DiscordiaSignaling.Events.SuspensionVersions do
   @moduledoc """
-  In-memory record of the last `admin.*` moderation version handled per subject:
-  a user id for `admin.user_suspended` and `{:server, server_id}` for the
-  `admin.server_*` events.
-
-  It only discards duplicates while the process lives: it is lost on restart on
-  purpose, because this service has no database.
+  Persists moderation versions in PostgreSQL so duplicate suppression survives
+  process restarts and does not depend on local memory.
   """
 
-  use Agent
+  alias DiscordiaSignaling.Voice.ReplicaStore
 
-  def start_link(_opts), do: Agent.start_link(fn -> %{} end, name: __MODULE__)
+  @spec newer?(term(), integer()) :: {:ok, boolean()} | {:error, term()}
+  def newer?(key, version), do: store().newer_version(key, version)
 
-  @doc "True when `version` is greater than the last one recorded for the subject."
-  @spec newer?(term(), integer()) :: boolean()
-  def newer?(key, version) do
-    Agent.get(__MODULE__, fn versions ->
-      case Map.fetch(versions, key) do
-        {:ok, seen} -> version > seen
-        :error -> true
-      end
-    end)
-  end
+  @spec record(term(), integer()) :: :ok | {:error, term()}
+  def record(key, version), do: store().record_version(key, version)
 
-  @doc "Records `version` for the subject, keeping the highest one seen."
-  @spec record(term(), integer()) :: :ok
-  def record(key, version) do
-    Agent.update(__MODULE__, &Map.update(&1, key, version, fn seen -> max(seen, version) end))
+  defp store do
+    Application.get_env(:discordia_signaling, :voice_event_store, ReplicaStore)
   end
 end

@@ -62,10 +62,19 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
     status text NOT NULL,
     received_at timestamptz NOT NULL DEFAULT now(),
     processed_at timestamptz,
-    error text
+    error text,
+    attempts integer NOT NULL DEFAULT 0
   );
+  ALTER TABLE voice_consumed_events
+    ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
   CREATE INDEX IF NOT EXISTS voice_consumed_events_status_idx
     ON voice_consumed_events (status, received_at);
+  CREATE TABLE IF NOT EXISTS voice_event_versions (
+    subject_type text NOT NULL,
+    subject_id text NOT NULL,
+    version bigint NOT NULL,
+    PRIMARY KEY (subject_type, subject_id)
+  );
   """
 
   @keys %{
@@ -107,6 +116,15 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
 
   def complete_consumption(event_id, status, error \\ nil),
     do: GenServer.call(__MODULE__, {:complete_consumption, event_id, status, error}, 1_000)
+
+  def next_consumption_attempt(event_id, error \\ nil),
+    do: GenServer.call(__MODULE__, {:next_consumption_attempt, event_id, error}, 1_000)
+
+  def newer_version(key, version),
+    do: GenServer.call(__MODULE__, {:newer_version, key, version}, 1_000)
+
+  def record_version(key, version),
+    do: GenServer.call(__MODULE__, {:record_version, key, version}, 1_000)
 
   @impl true
   def init(_opts) do
@@ -182,7 +200,7 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
                  VALUES ($1, $2, $3::jsonb)
                  ON CONFLICT (event_id) DO NOTHING
                """,
-               [event_id, event_type, Jason.encode!(event)]
+               [event_id, event_type, event]
              ) do
           {:ok, _} -> :ok
           {:error, reason} -> {:error, reason}
@@ -255,6 +273,8 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
         _from,
         %{conn: conn} = state
       ) do
+    payload = audit_payload(payload)
+
     reply =
       case Postgrex.query(
              conn,
@@ -276,6 +296,7 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
                  [event_id]
                ) do
             {:ok, %{rows: [["processed"]]}} -> :processed
+            {:ok, %{rows: [["invalid"]]}} -> :processed
             {:ok, %{rows: [["pending"]]}} -> :new
             {:ok, %{rows: [["failed"]]}} -> :new
             {:error, reason} -> {:error, reason}
@@ -309,6 +330,70 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
            ) do
         {:ok, _} -> :ok
         {:error, reason} -> {:error, reason}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:next_consumption_attempt, _event_id, _error}, _from, %{conn: nil} = state),
+    do: {:reply, {:error, :unavailable}, state}
+
+  def handle_call({:next_consumption_attempt, event_id, error}, _from, %{conn: conn} = state) do
+    reply =
+      case Postgrex.query(
+             conn,
+             """
+               UPDATE voice_consumed_events
+               SET attempts = attempts + 1, status = 'failed', error = $2
+               WHERE event_id = $1
+               RETURNING attempts
+             """,
+             [event_id, error]
+           ) do
+        {:ok, %{rows: [[attempts]]}} -> {:ok, attempts}
+        {:ok, %{rows: []}} -> {:error, :unknown_event}
+        {:error, reason} -> {:error, reason}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:newer_version, _key, _version}, _from, %{conn: nil} = state),
+    do: {:reply, {:error, :unavailable}, state}
+
+  def handle_call({:newer_version, key, version}, _from, %{conn: conn} = state) do
+    reply =
+      with {:ok, {subject_type, subject_id}} <- version_subject(key),
+           {:ok, %{rows: rows}} <-
+             Postgrex.query(
+               conn,
+               "SELECT version FROM voice_event_versions WHERE subject_type = $1 AND subject_id = $2",
+               [subject_type, subject_id]
+             ) do
+        {:ok, rows == [] or version > hd(hd(rows))}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:record_version, _key, _version}, _from, %{conn: nil} = state),
+    do: {:reply, {:error, :unavailable}, state}
+
+  def handle_call({:record_version, key, version}, _from, %{conn: conn} = state) do
+    reply =
+      with {:ok, {subject_type, subject_id}} <- version_subject(key),
+           {:ok, _} <-
+             Postgrex.query(
+               conn,
+               """
+                 INSERT INTO voice_event_versions (subject_type, subject_id, version)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT (subject_type, subject_id)
+                 DO UPDATE SET version = GREATEST(voice_event_versions.version, EXCLUDED.version)
+               """,
+               [subject_type, subject_id, version]
+             ) do
+        :ok
       end
 
     {:reply, reply, state}
@@ -532,6 +617,23 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp version_subject({:server, server_id}) when is_binary(server_id) and server_id != "",
+    do: {:ok, {"server", server_id}}
+
+  defp version_subject(user_id) when is_binary(user_id) and user_id != "",
+    do: {:ok, {"user", user_id}}
+
+  defp version_subject(_key), do: {:error, :invalid_subject}
+
+  defp audit_payload(payload) when is_binary(payload) do
+    case Jason.decode(payload) do
+      {:ok, decoded} -> decoded
+      {:error, _reason} -> %{"raw_payload" => payload}
+    end
+  end
+
+  defp audit_payload(payload), do: payload
 
   defp authorize_query(conn, channel_id, user_id) do
     sql = """
