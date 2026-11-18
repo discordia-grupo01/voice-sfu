@@ -51,7 +51,7 @@ defmodule DiscordiaSignalingWeb.PrivateCallControllerTest do
     conn = PrivateCallController.create(request("caller-invalid"), %{})
 
     assert conn.status == 400
-    assert Jason.decode!(conn.resp_body) == %{"error" => "invalid_input"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "INVALID_BODY")
   end
 
   test "rejects and finishes calls through their controller actions" do
@@ -80,8 +80,8 @@ defmodule DiscordiaSignalingWeb.PrivateCallControllerTest do
 
     assert reject_response.status == 404
     assert finish_response.status == 404
-    assert Jason.decode!(reject_response.resp_body) == %{"error" => "call_not_found"}
-    assert Jason.decode!(finish_response.resp_body) == %{"error" => "call_not_found"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(reject_response, "CALL_NOT_FOUND")
+    assert DiscordiaSignaling.TestHelpers.assert_error(finish_response, "CALL_NOT_FOUND")
   end
 
   describe "screen_token/2" do
@@ -105,14 +105,14 @@ defmodule DiscordiaSignalingWeb.PrivateCallControllerTest do
       conn = request("caller-ctl-2") |> PrivateCallController.screen_token(%{"id" => call.id})
 
       assert conn.status == 409
-      assert Jason.decode!(conn.resp_body) == %{"error" => "invalid_call_state"}
+      assert DiscordiaSignaling.TestHelpers.assert_error(conn, "INVALID_CALL_STATE")
     end
 
     test "answers 404 for an unknown call" do
       conn = request("caller-ctl-3") |> PrivateCallController.screen_token(%{"id" => "missing"})
 
       assert conn.status == 404
-      assert Jason.decode!(conn.resp_body) == %{"error" => "call_not_found"}
+      assert DiscordiaSignaling.TestHelpers.assert_error(conn, "CALL_NOT_FOUND")
     end
 
     test "answers 403 to someone outside the call" do
@@ -122,8 +122,26 @@ defmodule DiscordiaSignalingWeb.PrivateCallControllerTest do
       conn = request("intruder") |> PrivateCallController.screen_token(%{"id" => call.id})
 
       assert conn.status == 403
-      assert Jason.decode!(conn.resp_body) == %{"error" => "voice_call_forbidden"}
+      assert DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_CALL_FORBIDDEN")
     end
+  end
+
+  test "an inconsistent call answers 500 INTERNAL_ERROR instead of a 403" do
+    # Un evento replicado con el mismo caller y recipient deja una llamada corrupta.
+    assert :ok =
+             PrivateCall.replicate_event(%{
+               "status" => "ringing",
+               "call_id" => "self-call-500",
+               "conversation_id" => "conversation-self",
+               "caller_id" => "user-self",
+               "recipient_id" => "user-self"
+             })
+
+    conn = request("user-self") |> PrivateCallController.reject(%{"id" => "self-call-500"})
+
+    assert conn.status == 500
+    error = TestHelpers.assert_error(conn, "INTERNAL_ERROR")
+    refute inspect(error) =~ "invalid_call"
   end
 
   defp start_call(caller_id, recipient_id) do

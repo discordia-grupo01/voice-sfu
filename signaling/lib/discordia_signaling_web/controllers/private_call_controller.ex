@@ -3,7 +3,10 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
   use OpenApiSpex.ControllerSpecs
 
   alias DiscordiaSignaling.Voice.PrivateCall
+  alias DiscordiaSignalingWeb.ApiError
   alias DiscordiaSignalingWeb.Schemas
+
+  require Logger
 
   tags(["calls"])
 
@@ -16,16 +19,20 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
       {"Destinatario y conversación", "application/json", Schemas.CallRequest, required: true},
     responses: [
       created: {"La llamada está sonando", "application/json", Schemas.Call},
-      bad_request: {"Datos inválidos", "application/json", Schemas.BadRequest},
-      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      bad_request: {"Datos inválidos (INVALID_BODY)", "application/json", Schemas.ErrorResponse},
+      unauthorized:
+        {"Falta el Bearer o es inválido (UNAUTHORIZED)", "application/json",
+         Schemas.ErrorResponse},
+      internal_server_error:
+        {"Error inesperado (INTERNAL_ERROR)", "application/json", Schemas.ErrorResponse},
       forbidden:
-        {"La conversación no admite llamadas o hay un bloqueo (voice_call_forbidden)",
+        {"La conversación no admite llamadas o hay un bloqueo (VOICE_CALL_FORBIDDEN)",
          "application/json", Schemas.ErrorResponse},
       conflict:
-        {"Ya hay una llamada entre ambos (call_already_exists)", "application/json",
+        {"Ya hay una llamada entre ambos (CALL_ALREADY_EXISTS)", "application/json",
          Schemas.ErrorResponse},
       service_unavailable:
-        {"No se pudo validar el contacto (voice_unavailable)", "application/json",
+        {"No se pudo validar el contacto (VOICE_UNAVAILABLE)", "application/json",
          Schemas.ErrorResponse}
     ]
   )
@@ -56,17 +63,21 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
       ok:
         {"Credenciales de LiveKit de la llamada aceptada", "application/json",
          Schemas.AcceptedCall},
-      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      unauthorized:
+        {"Falta el Bearer o es inválido (UNAUTHORIZED)", "application/json",
+         Schemas.ErrorResponse},
+      internal_server_error:
+        {"Error inesperado (INTERNAL_ERROR)", "application/json", Schemas.ErrorResponse},
       forbidden:
-        {"El usuario no es el destinatario (voice_call_forbidden)", "application/json",
+        {"El usuario no es el destinatario (VOICE_CALL_FORBIDDEN)", "application/json",
          Schemas.ErrorResponse},
       not_found:
-        {"La llamada no existe (call_not_found)", "application/json", Schemas.ErrorResponse},
+        {"La llamada no existe (CALL_NOT_FOUND)", "application/json", Schemas.ErrorResponse},
       conflict:
-        {"La llamada ya no está sonando (invalid_call_state)", "application/json",
+        {"La llamada ya no está sonando (INVALID_CALL_STATE)", "application/json",
          Schemas.ErrorResponse},
       service_unavailable:
-        {"LiveKit no está configurado (voice_unavailable)", "application/json",
+        {"LiveKit no está configurado (VOICE_UNAVAILABLE)", "application/json",
          Schemas.ErrorResponse}
     ]
   )
@@ -88,17 +99,21 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
     parameters: [id: [in: :path, description: "Identificador de la llamada", type: :string]],
     responses: [
       ok: {"Token emitido", "application/json", Schemas.ScreenToken},
-      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      unauthorized:
+        {"Falta el Bearer o es inválido (UNAUTHORIZED)", "application/json",
+         Schemas.ErrorResponse},
+      internal_server_error:
+        {"Error inesperado (INTERNAL_ERROR)", "application/json", Schemas.ErrorResponse},
       forbidden:
-        {"El usuario no participa de la llamada (voice_call_forbidden)", "application/json",
+        {"El usuario no participa de la llamada (VOICE_CALL_FORBIDDEN)", "application/json",
          Schemas.ErrorResponse},
       not_found:
-        {"La llamada no existe (call_not_found)", "application/json", Schemas.ErrorResponse},
+        {"La llamada no existe (CALL_NOT_FOUND)", "application/json", Schemas.ErrorResponse},
       conflict:
-        {"La llamada no está activa (invalid_call_state)", "application/json",
+        {"La llamada no está activa (INVALID_CALL_STATE)", "application/json",
          Schemas.ErrorResponse},
       service_unavailable:
-        {"LiveKit no está configurado (voice_unavailable)", "application/json",
+        {"LiveKit no está configurado (VOICE_UNAVAILABLE)", "application/json",
          Schemas.ErrorResponse}
     ]
   )
@@ -118,14 +133,18 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
     parameters: [id: [in: :path, description: "Identificador de la llamada", type: :string]],
     responses: [
       no_content: "Llamada rechazada",
-      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      unauthorized:
+        {"Falta el Bearer o es inválido (UNAUTHORIZED)", "application/json",
+         Schemas.ErrorResponse},
+      internal_server_error:
+        {"Error inesperado (INTERNAL_ERROR)", "application/json", Schemas.ErrorResponse},
       forbidden:
-        {"El usuario no participa de la llamada (voice_call_forbidden)", "application/json",
+        {"El usuario no participa de la llamada (VOICE_CALL_FORBIDDEN)", "application/json",
          Schemas.ErrorResponse},
       not_found:
-        {"La llamada no existe (call_not_found)", "application/json", Schemas.ErrorResponse},
+        {"La llamada no existe (CALL_NOT_FOUND)", "application/json", Schemas.ErrorResponse},
       conflict:
-        {"La llamada ya no está sonando (invalid_call_state)", "application/json",
+        {"La llamada ya no está sonando (INVALID_CALL_STATE)", "application/json",
          Schemas.ErrorResponse}
     ]
   )
@@ -139,14 +158,18 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
     parameters: [id: [in: :path, description: "Identificador de la llamada", type: :string]],
     responses: [
       no_content: "Llamada terminada",
-      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      unauthorized:
+        {"Falta el Bearer o es inválido (UNAUTHORIZED)", "application/json",
+         Schemas.ErrorResponse},
+      internal_server_error:
+        {"Error inesperado (INTERNAL_ERROR)", "application/json", Schemas.ErrorResponse},
       forbidden:
-        {"El usuario no participa de la llamada (voice_call_forbidden)", "application/json",
+        {"El usuario no participa de la llamada (VOICE_CALL_FORBIDDEN)", "application/json",
          Schemas.ErrorResponse},
       not_found:
-        {"La llamada no existe (call_not_found)", "application/json", Schemas.ErrorResponse},
+        {"La llamada no existe (CALL_NOT_FOUND)", "application/json", Schemas.ErrorResponse},
       conflict:
-        {"La llamada no está activa (invalid_call_state)", "application/json",
+        {"La llamada no está activa (INVALID_CALL_STATE)", "application/json",
          Schemas.ErrorResponse}
     ]
   )
@@ -178,22 +201,20 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
     }
   end
 
-  defp error(conn, :invalid_input), do: conn |> put_status(400) |> json(%{error: "invalid_input"})
+  defp error(conn, :invalid_input),
+    do: ApiError.send_error(conn, :invalid_body, %{reason: "invalid_input"})
 
-  defp error(conn, :forbidden),
-    do: conn |> put_status(403) |> json(%{error: "voice_call_forbidden"})
+  defp error(conn, :forbidden), do: ApiError.send_error(conn, :voice_call_forbidden)
+  defp error(conn, :call_not_found), do: ApiError.send_error(conn, :call_not_found)
+  defp error(conn, :call_already_exists), do: ApiError.send_error(conn, :call_already_exists)
+  defp error(conn, :invalid_call_state), do: ApiError.send_error(conn, :invalid_call_state)
+  defp error(conn, :not_configured), do: ApiError.send_error(conn, :voice_unavailable)
+  defp error(conn, :unavailable), do: ApiError.send_error(conn, :voice_unavailable)
 
-  defp error(conn, :call_not_found),
-    do: conn |> put_status(404) |> json(%{error: "call_not_found"})
-
-  defp error(conn, :call_already_exists),
-    do: conn |> put_status(409) |> json(%{error: "call_already_exists"})
-
-  defp error(conn, :invalid_call_state),
-    do: conn |> put_status(409) |> json(%{error: "invalid_call_state"})
-
-  defp error(conn, :not_configured),
-    do: conn |> put_status(503) |> json(%{error: "voice_unavailable"})
-
-  defp error(conn, _reason), do: conn |> put_status(403) |> json(%{error: "voice_call_forbidden"})
+  # Motivos internos (datos inconsistentes, eventos inválidos) y cualquier razón
+  # desconocida: son errores del servicio, no del usuario, y no se exponen.
+  defp error(conn, reason) do
+    Logger.error("private call failed with an unexpected reason: #{inspect(reason)}")
+    ApiError.send_error(conn, :internal_error)
+  end
 end

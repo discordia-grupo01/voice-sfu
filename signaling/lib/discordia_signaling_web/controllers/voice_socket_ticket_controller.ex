@@ -3,6 +3,7 @@ defmodule DiscordiaSignalingWeb.VoiceSocketTicketController do
   use OpenApiSpex.ControllerSpecs
 
   alias DiscordiaSignaling.Voice.VoiceSocketTicket
+  alias DiscordiaSignalingWeb.ApiError
   alias DiscordiaSignalingWeb.Schemas
 
   tags(["voice"])
@@ -14,9 +15,11 @@ defmodule DiscordiaSignalingWeb.VoiceSocketTicketController do
     security: [%{"bearerAuth" => []}],
     responses: [
       ok: {"Ticket emitido", "application/json", Schemas.SocketTicket},
-      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      unauthorized:
+        {"Falta el Bearer o es inválido (UNAUTHORIZED)", "application/json",
+         Schemas.ErrorResponse},
       service_unavailable:
-        {"El servicio no tiene JWT_SECRET (voice_not_configured)", "application/json",
+        {"El servicio no tiene JWT_SECRET (VOICE_NOT_CONFIGURED)", "application/json",
          Schemas.ErrorResponse}
     ]
   )
@@ -27,10 +30,10 @@ defmodule DiscordiaSignalingWeb.VoiceSocketTicketController do
         json(conn, %{ticket: ticket, expires_in: VoiceSocketTicket.ttl_seconds()})
 
       {:error, :not_configured} ->
-        conn |> Plug.Conn.put_status(503) |> json(%{error: "voice_not_configured"})
+        ApiError.send_error(conn, :voice_not_configured)
 
       {:error, :invalid_input} ->
-        conn |> Plug.Conn.put_status(401) |> json(%{error: "unauthorized"})
+        ApiError.send_error(conn, :unauthorized)
     end
   end
 end

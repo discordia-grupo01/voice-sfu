@@ -3,48 +3,49 @@ defmodule DiscordiaSignalingWeb.Schemas do
 
   alias OpenApiSpex.Schema
 
+  defmodule ErrorDetail do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ErrorDetail",
+      type: :object,
+      properties: %{
+        code: %Schema{
+          type: :string,
+          pattern: "^[A-Z][A-Z0-9_]*$",
+          description:
+            "Código estable en SCREAMING_SNAKE_CASE: los clientes deciden por este campo.",
+          example: "VOICE_FORBIDDEN"
+        },
+        message: %Schema{
+          type: :string,
+          minLength: 1,
+          description: "Texto legible para humanos.",
+          example: "No tenés acceso a este canal de voz."
+        },
+        details: %Schema{
+          type: :object,
+          additionalProperties: true,
+          description:
+            "Datos adicionales; `{}` si no hay. En un 400 `INVALID_BODY`, `field` y `reason` indican el campo."
+        }
+      },
+      required: [:code, :message, :details]
+    })
+  end
+
   defmodule ErrorResponse do
     require OpenApiSpex
 
     OpenApiSpex.schema(%{
       title: "ErrorResponse",
-      description:
-        "Error del servicio: un código en texto, por ejemplo `voice_forbidden` o `call_not_found`.",
+      description: "Sobre de error común a todos los servicios de Discordia.",
       type: :object,
       properties: %{
-        error: %Schema{type: :string, example: "voice_forbidden"}
+        error: ErrorDetail
       },
-      required: [:error]
-    })
-  end
-
-  defmodule ParseError do
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "ParseError",
-      description:
-        "Cuerpo que no es JSON válido: lo rechaza Phoenix antes de llegar al controlador.",
-      type: :object,
-      properties: %{
-        errors: %Schema{
-          type: :object,
-          properties: %{detail: %Schema{type: :string, example: "Bad Request"}},
-          required: [:detail]
-        }
-      },
-      required: [:errors]
-    })
-  end
-
-  defmodule BadRequest do
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "BadRequest",
-      description:
-        "Un código del servicio, o el error de Phoenix si el cuerpo no es JSON válido.",
-      oneOf: [ErrorResponse, ParseError]
+      required: [:error],
+      additionalProperties: false
     })
   end
 

@@ -16,7 +16,7 @@ defmodule DiscordiaSignalingWeb.ApiSpec do
             "compartir pantalla, maneja las llamadas privadas uno a uno y expone quién está " <>
             "conectado. La media viaja por LiveKit; la presencia en vivo, por el socket de " <>
             "Phoenix (`/voice/socket`), fuera de este contrato. Los errores de este servicio " <>
-            "son `{\"error\": \"<codigo>\"}`.",
+            "usan el sobre común `{\"error\": {\"code\", \"message\", \"details\"}}`.",
         version: "1.0.0"
       },
       paths: Paths.from_router(DiscordiaSignalingWeb.Router),

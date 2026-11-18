@@ -96,7 +96,7 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
     conn = VoicePresenceController.index(conn(:get, "/api/voice/participants"), %{})
 
     assert conn.status == 400
-    assert Jason.decode!(conn.resp_body) == %{"error" => "server_id_required"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "INVALID_BODY")
   end
 
   describe "with the servers API as the authorizer" do
@@ -158,7 +158,7 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
       conn = participants_request()
 
       assert conn.status == 403
-      assert Jason.decode!(conn.resp_body) == %{"error" => "voice_forbidden"}
+      assert DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_FORBIDDEN")
     end
 
     test "answers unavailable, not forbidden, when the servers API fails" do
@@ -167,7 +167,7 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
       conn = participants_request()
 
       assert conn.status == 503
-      assert Jason.decode!(conn.resp_body) == %{"error" => "voice_unavailable"}
+      assert DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_UNAVAILABLE")
     end
 
     test "answers unavailable when the servers API cannot be reached" do
@@ -179,7 +179,7 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
       conn = participants_request()
 
       assert conn.status == 503
-      assert Jason.decode!(conn.resp_body) == %{"error" => "voice_unavailable"}
+      assert DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_UNAVAILABLE")
     end
 
     test "asks the lean membership endpoint, not the whole server" do
