@@ -102,6 +102,18 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
     end)
   end
 
+  @spec private_participants(String.t()) :: [String.t()]
+  def private_participants(room_name) when is_binary(room_name) do
+    @table
+    |> :ets.tab2list()
+    |> Enum.flat_map(fn
+      {identity, %{room_name: ^room_name}} -> [identity]
+      _ -> []
+    end)
+  end
+
+  def private_participants(_room_name), do: []
+
   @spec room_starts() :: %{String.t() => String.t()}
   def room_starts do
     @starts_table
@@ -200,7 +212,7 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   @impl true
   def handle_call({:replicate_presence, event}, _from, state) do
     if apply_presence_event(event) == :applied do
-      broadcast_presence_event(event)
+      broadcast_replicated_presence(event)
     end
 
     {:reply, :ok, state}
@@ -421,8 +433,55 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
 
   defp broadcast_presence(action, identity, participant) do
     event = presence_event(action, identity, participant)
-    broadcast_presence_event(event)
-    publisher().publish(event)
+    private_event = private_presence_event(action, identity, participant)
+
+    cond do
+      is_map(private_event) ->
+        broadcast_private_presence_event(private_event)
+        publisher().publish(private_event)
+
+      not is_binary(participant.server_id) or participant.server_id == "" ->
+        :ok
+
+      true ->
+        broadcast_presence_event(event)
+        publisher().publish(event)
+    end
+  end
+
+  defp private_presence_event(action, identity, participant),
+    do: private_presence_event(action, identity, participant, participant.room_name)
+
+  defp private_presence_event(action, identity, participant, "private-call:" <> call_id) do
+    event_type =
+      if action == :joined,
+        do: "voice.private_participant_joined",
+        else: "voice.private_participant_left"
+
+    occurred_at =
+      if action == :joined,
+        do: participant.occurred_at,
+        else: leave_timestamp(participant.occurred_at)
+
+    %{
+      "event_id" => uuid(),
+      "event_type" => event_type,
+      "call_id" => call_id,
+      "room_name" => participant.room_name,
+      "participant_id" => identity,
+      "name" => participant.name,
+      "occurred_at" => occurred_at
+    }
+  end
+
+  defp private_presence_event(_action, _identity, _participant, _room_name), do: nil
+
+  defp broadcast_private_presence_event(event) do
+    Phoenix.PubSub.broadcast(
+      @pubsub,
+      "voice:private-call:#{event["call_id"]}",
+      {:voice_private_presence, event}
+    )
   end
 
   defp presence_event(action, identity, participant) do
@@ -468,6 +527,62 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistry do
   end
 
   defp broadcast_presence_event(_event), do: :ok
+
+  defp broadcast_replicated_presence(%{"event_type" => event_type} = event)
+       when event_type in [
+              "voice.private_participant_joined",
+              "voice.private_participant_left"
+            ] do
+    broadcast_private_presence_event(event)
+  end
+
+  defp broadcast_replicated_presence(event), do: broadcast_presence_event(event)
+
+  defp apply_presence_event(%{
+         "event_type" => event_type,
+         "participant_id" => identity,
+         "room_name" => room_name,
+         "name" => name,
+         "occurred_at" => occurred_at
+       })
+       when event_type in [
+              "voice.private_participant_joined",
+              "voice.private_participant_left"
+            ] and
+              is_binary(identity) and identity != "" and
+              is_binary(room_name) and room_name != "" and
+              is_binary(occurred_at) do
+    incoming_room = room_name
+    current = lookup(identity)
+    applied = newer_event?(current, occurred_at)
+
+    if applied do
+      case event_type do
+        "voice.private_participant_joined" ->
+          :ets.insert(
+            @table,
+            {identity,
+             %{
+               room_name: incoming_room,
+               server_id: nil,
+               name: name,
+               occurred_at: occurred_at,
+               registered_at: now_ms()
+             }}
+          )
+
+          sync_room_start(incoming_room, occurred_at)
+
+        "voice.private_participant_left" ->
+          if current && room_name(current) == incoming_room do
+            :ets.delete(@table, identity)
+            sync_room_start(incoming_room, occurred_at)
+          end
+      end
+    end
+
+    if applied, do: :applied, else: :ignored
+  end
 
   defp apply_presence_event(%{
          "event_type" => event_type,

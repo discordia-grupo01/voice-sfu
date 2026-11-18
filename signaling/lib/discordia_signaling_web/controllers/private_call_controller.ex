@@ -6,6 +6,8 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
   alias DiscordiaSignalingWeb.ApiError
   alias DiscordiaSignalingWeb.Schemas
 
+  @uuid_pattern ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
   require Logger
 
   tags(["calls"])
@@ -37,21 +39,43 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
     ]
   )
 
-  def create(conn, %{"recipient_id" => recipient_id, "conversation_id" => conversation_id}) do
-    auth = List.first(Plug.Conn.get_req_header(conn, "authorization"))
+  def create(conn, %{"recipient_id" => recipient_id} = params) do
+    case conversation_id(params) do
+      {:ok, conversation_id} ->
+        auth = List.first(Plug.Conn.get_req_header(conn, "authorization"))
 
-    case PrivateCall.start(
-           conn.assigns.current_user_id,
-           recipient_id,
-           conversation_id,
-           auth
-         ) do
-      {:ok, call} -> conn |> put_status(201) |> json(payload(call))
-      {:error, reason} -> error(conn, reason)
+        case PrivateCall.start(
+               conn.assigns.current_user_id,
+               recipient_id,
+               conversation_id,
+               auth
+             ) do
+          {:ok, call} -> conn |> put_status(201) |> json(payload(call))
+          {:error, reason} -> error(conn, reason)
+        end
+
+      :error ->
+        error(conn, :invalid_input)
     end
   end
 
   def create(conn, _), do: error(conn, :invalid_input)
+
+  defp conversation_id(params) do
+    case Map.fetch(params, "conversation_id") do
+      :error ->
+        {:ok, nil}
+
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, value} when is_binary(value) ->
+        if Regex.match?(@uuid_pattern, value), do: {:ok, value}, else: :error
+
+      {:ok, _value} ->
+        :error
+    end
+  end
 
   operation(:accept,
     summary: "Acepta una llamada privada",

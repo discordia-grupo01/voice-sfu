@@ -9,7 +9,13 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Voice.{LiveKitRoomService, LiveKitToken, ScreenShare, VoiceAccess}
+  alias DiscordiaSignaling.Voice.{
+    LiveKitRoomService,
+    LiveKitToken,
+    ScreenShare,
+    VoiceAccess,
+    VoiceSessionRegistry
+  }
 
   @table :private_voice_calls
   @timeout_ms 30_000
@@ -47,8 +53,10 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
 
   @impl true
   def handle_call({:start, caller, recipient, conversation, auth}, _from, state) do
-    with :ok <- validate_ids(caller, recipient, conversation),
-         {:ok, _details} <- authorize_contact(caller, recipient, conversation, auth),
+    with :ok <- validate_ids(caller, recipient),
+         :ok <- validate_conversation(conversation),
+         {:ok, details} <- authorize_contact(caller, recipient, conversation, auth),
+         {:ok, resolved_conversation} <- resolve_conversation(conversation, details),
          :ok <- no_active_call(caller, recipient) do
       call_id = call_id()
 
@@ -56,7 +64,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
         id: call_id,
         caller_id: caller,
         recipient_id: recipient,
-        conversation_id: conversation,
+        conversation_id: resolved_conversation,
         room_name: "private-call:" <> call_id,
         status: :ringing,
         inserted_at: System.system_time(:millisecond),
@@ -148,7 +156,16 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   end
 
   def handle_call({:reconcile, participants}, _from, state) do
-    identities_by_room = Enum.group_by(participants, & &1.room_name, & &1.identity)
+    identities_by_room =
+      participants
+      |> Enum.group_by(& &1.room_name, & &1.identity)
+      |> Enum.reduce(%{}, fn {room_name, identities}, acc ->
+        remote =
+          VoiceSessionRegistry.private_participants(room_name)
+
+        Map.put(acc, room_name, Enum.uniq(identities ++ remote))
+      end)
+
     now = System.system_time(:millisecond)
 
     for {_call_id, %{status: :active} = call} <- :ets.tab2list(@table) do
@@ -238,12 +255,38 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
     if active, do: {:error, :call_already_exists}, else: :ok
   end
 
-  defp validate_ids(caller, recipient, conversation)
+  defp validate_ids(caller, recipient)
        when is_binary(caller) and caller != "" and is_binary(recipient) and recipient != "" and
-              caller != recipient and is_binary(conversation) and conversation != "",
+              caller != recipient,
        do: :ok
 
-  defp validate_ids(_, _, _), do: {:error, :invalid_input}
+  defp validate_ids(_, _), do: {:error, :invalid_input}
+
+  defp validate_conversation(nil), do: :ok
+
+  defp validate_conversation(conversation)
+       when is_binary(conversation) and conversation != "",
+       do: :ok
+
+  defp validate_conversation(_conversation), do: {:error, :invalid_input}
+
+  defp resolve_conversation(conversation_id, _details)
+       when is_binary(conversation_id) and conversation_id != "",
+       do: {:ok, conversation_id}
+
+  defp resolve_conversation(_conversation_id, details) when is_map(details) do
+    resolved =
+      Map.get(details, :conversation_id) ||
+        Map.get(details, "conversation_id")
+
+    if is_binary(resolved) and resolved != "" do
+      {:ok, resolved}
+    else
+      {:error, :invalid_input}
+    end
+  end
+
+  defp resolve_conversation(_conversation_id, _details), do: {:error, :invalid_input}
 
   defp fetch(call_id) do
     case :ets.lookup(@table, call_id) do
@@ -412,7 +455,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
       Map.merge(
         %{
           "event_type" => "voice.private_call",
-          "event_id" => call_id(),
+          "event_id" => event_uuid(),
           "occurred_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
           "call_id" => call.id,
           "conversation_id" => call.conversation_id,
@@ -428,4 +471,11 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
 
   defp call_id,
     do: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+
+  defp event_uuid do
+    <<a::32, b::16, c::16, d::16, e::48>> = :crypto.strong_rand_bytes(16)
+    "#{hex(a, 8)}-#{hex(b, 4)}-#{hex(c, 4)}-#{hex(d, 4)}-#{hex(e, 12)}"
+  end
+
+  defp hex(value, size), do: value |> Integer.to_string(16) |> String.pad_leading(size, "0")
 end

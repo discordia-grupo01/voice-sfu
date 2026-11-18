@@ -52,6 +52,22 @@ defmodule DiscordiaSignaling.Events.ContractTest do
     assert Contract.check("servers.member_left", body) == :ok
   end
 
+  test "accepts private call events with UUID identifiers" do
+    event = %{
+      "event_id" => "550e8400-e29b-41d4-a716-446655440010",
+      "occurred_at" => "2026-11-18T22:17:40Z",
+      "event_type" => "voice.private_call",
+      "call_id" => "call-id",
+      "conversation_id" => "550e8400-e29b-41d4-a716-446655440001",
+      "caller_id" => "caller-id",
+      "recipient_id" => "recipient-id",
+      "room_name" => "private-call:call-id",
+      "status" => "ringing"
+    }
+
+    assert Contract.check("voice.private_call", event) == :ok
+  end
+
   test "ignores events the contract does not know" do
     assert Contract.check("otro.evento", %{"x" => 1}) == :ok
   end

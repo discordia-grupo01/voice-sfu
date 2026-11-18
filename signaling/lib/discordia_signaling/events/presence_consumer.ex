@@ -17,7 +17,13 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
   alias DiscordiaSignaling.Tracing
   alias DiscordiaSignaling.Voice.{PrivateCall, VoiceSessionRegistry}
 
-  @routing_keys ["voice.participant_joined", "voice.participant_left", "voice.private_call"]
+  @routing_keys [
+    "voice.participant_joined",
+    "voice.participant_left",
+    "voice.private_participant_joined",
+    "voice.private_participant_left",
+    "voice.private_call"
+  ]
   @default_exchange "discordia.events"
 
   def start_link(opts) do
@@ -101,10 +107,17 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
       event = Map.put(event, "event_type", routing_key)
       Contract.check(routing_key, event)
 
-      if routing_key == "voice.private_call" do
-        PrivateCall.replicate_event(event)
-      else
-        VoiceSessionRegistry.replicate_presence(event)
+      cond do
+        routing_key == "voice.private_call" ->
+          PrivateCall.replicate_event(event)
+
+        routing_key in [
+          "voice.participant_joined",
+          "voice.participant_left",
+          "voice.private_participant_joined",
+          "voice.private_participant_left"
+        ] ->
+          VoiceSessionRegistry.replicate_presence(event)
       end
     end
 

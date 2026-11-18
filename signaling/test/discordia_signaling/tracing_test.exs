@@ -43,6 +43,16 @@ defmodule DiscordiaSignaling.TracingTest do
 
   defp attributes(record), do: record |> span(:attributes) |> :otel_attributes.map()
 
+  defp log_entry(log, message) do
+    pattern =
+      ~r/\{[^{}]*"message":"#{Regex.escape(message)}"[^{}]*\}/
+
+    case Regex.run(pattern, log) do
+      [entry] -> Jason.decode!(entry)
+      nil -> flunk("no se encontró el log #{inspect(message)}")
+    end
+  end
+
   defp conn(method, path, headers \\ []) do
     Enum.reduce(headers, Plug.Test.conn(method, path), fn {key, value}, acc ->
       Plug.Conn.put_req_header(acc, key, value)
@@ -114,11 +124,7 @@ defmodule DiscordiaSignaling.TracingTest do
 
       record = exported()
 
-      line =
-        log
-        |> String.split("\n", trim: true)
-        |> Enum.map(&Jason.decode!/1)
-        |> Enum.find(&(&1["message"] == "http_request"))
+      line = log_entry(log, "http_request")
 
       assert line["trace_id"] == @trace_id
       assert line["span_id"] == hex(span(record, :span_id), 16)
@@ -187,7 +193,9 @@ defmodule DiscordiaSignaling.TracingTest do
           )
         end)
 
-      assert %{"trace_id" => @trace_id, "span_id" => span_id} = Jason.decode!(String.trim(log))
+      line = log_entry(log, "inside")
+
+      assert %{"trace_id" => @trace_id, "span_id" => span_id} = line
       assert span_id == hex(span(exported(), :span_id), 16)
 
       refute Keyword.has_key?(Logger.metadata(), :trace_id)

@@ -151,11 +151,14 @@ defmodule DiscordiaSignalingWeb.Schemas do
         },
         conversation_id: %Schema{
           type: :string,
+          format: :uuid,
           minLength: 1,
-          description: "Conversación directa entre ambos."
+          nullable: true,
+          description:
+            "Conversación directa existente. Puede omitirse para abrir una conversación desde un borrador."
         }
       },
-      required: [:recipient_id, :conversation_id]
+      required: [:recipient_id]
     })
   end
 
