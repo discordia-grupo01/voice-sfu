@@ -1,4 +1,26 @@
 defmodule DiscordiaSignaling.TestHelpers do
+  import ExUnit.Assertions
+
+  @code_pattern ~r/^[A-Z][A-Z0-9_]*$/
+
+  @doc """
+  Verifica el sobre de error completo (`error.code`, `error.message`, `error.details`)
+  y devuelve el objeto `error` para seguir verificando detalles.
+  """
+  def assert_error(conn, code) do
+    assert [content_type | _] = Plug.Conn.get_resp_header(conn, "content-type")
+    assert content_type =~ "application/json"
+
+    body = Jason.decode!(conn.resp_body)
+    assert Map.keys(body) == ["error"]
+    %{"error" => error} = body
+    assert is_binary(error["code"]) and error["code"] =~ @code_pattern
+    assert is_binary(error["message"]) and error["message"] != ""
+    assert is_map(error["details"])
+    assert error["code"] == code
+    error
+  end
+
   def put_livekit_config(
         config \\ [
           api_key: "test-key",
