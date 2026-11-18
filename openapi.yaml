@@ -56,14 +56,6 @@ components:
       type: object
       x-struct: Elixir.DiscordiaSignalingWeb.Schemas.AcceptedCall
       x-validate:
-    BadRequest:
-      description: Un código del servicio, o el error de Phoenix si el cuerpo no es JSON válido.
-      oneOf:
-        - $ref: '#/components/schemas/ErrorResponse'
-        - $ref: '#/components/schemas/ParseError'
-      title: BadRequest
-      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.BadRequest
-      x-validate:
     Call:
       properties:
         call_id:
@@ -168,14 +160,42 @@ components:
       type: object
       x-struct: Elixir.DiscordiaSignalingWeb.Schemas.ChannelRequest
       x-validate:
-    ErrorResponse:
-      description: 'Error del servicio: un código en texto, por ejemplo `voice_forbidden` o `call_not_found`.'
+    ErrorDetail:
       properties:
-        error:
-          example: voice_forbidden
+        code:
+          description: 'Código estable en SCREAMING_SNAKE_CASE: los clientes deciden por este campo.'
+          example: VOICE_FORBIDDEN
+          pattern: ^[A-Z][A-Z0-9_]*$
           type: string
           x-struct:
           x-validate:
+        details:
+          additionalProperties: true
+          description: Datos adicionales; `{}` si no hay. En un 400 `INVALID_BODY`, `field` y `reason` indican el campo.
+          type: object
+          x-struct:
+          x-validate:
+        message:
+          description: Texto legible para humanos.
+          example: No tenés acceso a este canal de voz.
+          minLength: 1
+          type: string
+          x-struct:
+          x-validate:
+      required:
+        - code
+        - message
+        - details
+      title: ErrorDetail
+      type: object
+      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.ErrorDetail
+      x-validate:
+    ErrorResponse:
+      additionalProperties: false
+      description: Sobre de error común a todos los servicios de Discordia.
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
       required:
         - error
       title: ErrorResponse
@@ -221,27 +241,6 @@ components:
       title: NotReady
       type: object
       x-struct: Elixir.DiscordiaSignalingWeb.Schemas.NotReady
-      x-validate:
-    ParseError:
-      description: 'Cuerpo que no es JSON válido: lo rechaza Phoenix antes de llegar al controlador.'
-      properties:
-        errors:
-          properties:
-            detail:
-              example: Bad Request
-              type: string
-              x-struct:
-              x-validate:
-          required:
-            - detail
-          type: object
-          x-struct:
-          x-validate:
-      required:
-        - errors
-      title: ParseError
-      type: object
-      x-struct: Elixir.DiscordiaSignalingWeb.Schemas.ParseError
       x-validate:
     Participant:
       properties:
@@ -374,7 +373,7 @@ components:
       scheme: bearer
       type: http
 info:
-  description: 'Señalización de voz sobre LiveKit: emite los tokens para entrar a un canal de voz o compartir pantalla, maneja las llamadas privadas uno a uno y expone quién está conectado. La media viaja por LiveKit; la presencia en vivo, por el socket de Phoenix (`/voice/socket`), fuera de este contrato. Los errores de este servicio son `{"error": "<codigo>"}`.'
+  description: 'Señalización de voz sobre LiveKit: emite los tokens para entrar a un canal de voz o compartir pantalla, maneja las llamadas privadas uno a uno y expone quién está conectado. La media viaja por LiveKit; la presencia en vivo, por el socket de Phoenix (`/voice/socket`), fuera de este contrato. Los errores de este servicio usan el sobre común `{"error": {"code", "message", "details"}}`.'
   title: Discordia - Voice Signaling API
   version: 1.0.0
 openapi: 3.0.0
@@ -403,32 +402,38 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BadRequest'
-          description: Datos inválidos
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Datos inválidos (INVALID_BODY)
         '401':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Falta el Bearer o es inválido
+          description: Falta el Bearer o es inválido (UNAUTHORIZED)
         '403':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: La conversación no admite llamadas o hay un bloqueo (voice_call_forbidden)
+          description: La conversación no admite llamadas o hay un bloqueo (VOICE_CALL_FORBIDDEN)
         '409':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Ya hay una llamada entre ambos (call_already_exists)
+          description: Ya hay una llamada entre ambos (CALL_ALREADY_EXISTS)
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Error inesperado (INTERNAL_ERROR)
         '503':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: No se pudo validar el contacto (voice_unavailable)
+          description: No se pudo validar el contacto (VOICE_UNAVAILABLE)
       security:
         - bearerAuth: []
       summary: Inicia una llamada privada uno a uno
@@ -460,31 +465,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Falta el Bearer o es inválido
+          description: Falta el Bearer o es inválido (UNAUTHORIZED)
         '403':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: El usuario no es el destinatario (voice_call_forbidden)
+          description: El usuario no es el destinatario (VOICE_CALL_FORBIDDEN)
         '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: La llamada no existe (call_not_found)
+          description: La llamada no existe (CALL_NOT_FOUND)
         '409':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: La llamada ya no está sonando (invalid_call_state)
+          description: La llamada ya no está sonando (INVALID_CALL_STATE)
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Error inesperado (INTERNAL_ERROR)
         '503':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: LiveKit no está configurado (voice_unavailable)
+          description: LiveKit no está configurado (VOICE_UNAVAILABLE)
       security:
         - bearerAuth: []
       summary: Acepta una llamada privada
@@ -512,25 +523,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Falta el Bearer o es inválido
+          description: Falta el Bearer o es inválido (UNAUTHORIZED)
         '403':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: El usuario no participa de la llamada (voice_call_forbidden)
+          description: El usuario no participa de la llamada (VOICE_CALL_FORBIDDEN)
         '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: La llamada no existe (call_not_found)
+          description: La llamada no existe (CALL_NOT_FOUND)
         '409':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: La llamada no está activa (invalid_call_state)
+          description: La llamada no está activa (INVALID_CALL_STATE)
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Error inesperado (INTERNAL_ERROR)
       security:
         - bearerAuth: []
       summary: Termina una llamada activa
@@ -558,25 +575,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Falta el Bearer o es inválido
+          description: Falta el Bearer o es inválido (UNAUTHORIZED)
         '403':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: El usuario no participa de la llamada (voice_call_forbidden)
+          description: El usuario no participa de la llamada (VOICE_CALL_FORBIDDEN)
         '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: La llamada no existe (call_not_found)
+          description: La llamada no existe (CALL_NOT_FOUND)
         '409':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: La llamada ya no está sonando (invalid_call_state)
+          description: La llamada ya no está sonando (INVALID_CALL_STATE)
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Error inesperado (INTERNAL_ERROR)
       security:
         - bearerAuth: []
       summary: Rechaza o cancela una llamada que está sonando
@@ -608,31 +631,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Falta el Bearer o es inválido
+          description: Falta el Bearer o es inválido (UNAUTHORIZED)
         '403':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: El usuario no participa de la llamada (voice_call_forbidden)
+          description: El usuario no participa de la llamada (VOICE_CALL_FORBIDDEN)
         '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: La llamada no existe (call_not_found)
+          description: La llamada no existe (CALL_NOT_FOUND)
         '409':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: La llamada no está activa (invalid_call_state)
+          description: La llamada no está activa (INVALID_CALL_STATE)
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Error inesperado (INTERNAL_ERROR)
         '503':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: LiveKit no está configurado (voice_unavailable)
+          description: LiveKit no está configurado (VOICE_UNAVAILABLE)
       security:
         - bearerAuth: []
       summary: Emite un token de LiveKit para compartir pantalla en una llamada privada
@@ -664,26 +693,26 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BadRequest'
-          description: Falta server_id
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta server_id (INVALID_BODY)
         '401':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Falta el Bearer o es inválido
+          description: Falta el Bearer o es inválido (UNAUTHORIZED)
         '403':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: No es miembro del servidor (voice_forbidden)
+          description: No es miembro del servidor (VOICE_FORBIDDEN)
         '503':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: No se pudo comprobar la pertenencia (voice_unavailable)
+          description: No se pudo comprobar la pertenencia (VOICE_UNAVAILABLE)
       security:
         - bearerAuth: []
       summary: Participantes conectados a los canales de voz de un servidor
@@ -713,26 +742,26 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BadRequest'
-          description: Falta channel_id
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta channel_id (INVALID_BODY)
         '401':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Falta el Bearer o es inválido
+          description: Falta el Bearer o es inválido (UNAUTHORIZED)
         '403':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Sin acceso al canal (voice_forbidden) o un moderador lo silenció (voice_screen_share_forbidden)
+          description: Sin acceso al canal (VOICE_FORBIDDEN) o un moderador lo silenció (VOICE_SCREEN_SHARE_FORBIDDEN)
         '409':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: El usuario no está en la sala de ese canal (voice_not_in_channel)
+          description: El usuario no está en la sala de ese canal (VOICE_NOT_IN_CHANNEL)
         '503':
           content:
             application/json:
@@ -764,20 +793,20 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BadRequest'
-          description: Falta channel_id
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta channel_id (INVALID_BODY)
         '401':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Falta el Bearer o es inválido
+          description: Falta el Bearer o es inválido (UNAUTHORIZED)
         '403':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: El usuario no puede acceder al canal (voice_forbidden)
+          description: El usuario no puede acceder al canal (VOICE_FORBIDDEN)
         '503':
           content:
             application/json:
@@ -807,13 +836,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Falta el Bearer o es inválido
+          description: Falta el Bearer o es inválido (UNAUTHORIZED)
         '503':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: El servicio no tiene JWT_SECRET (voice_not_configured)
+          description: El servicio no tiene JWT_SECRET (VOICE_NOT_CONFIGURED)
       security:
         - bearerAuth: []
       summary: Emite un ticket para abrir el socket de presencia de voz
@@ -843,20 +872,20 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BadRequest'
-          description: Falta channel_id
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Falta channel_id (INVALID_BODY)
         '401':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Falta el Bearer o es inválido
+          description: Falta el Bearer o es inválido (UNAUTHORIZED)
         '403':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: El usuario no puede entrar al canal (voice_forbidden)
+          description: El usuario no puede entrar al canal (VOICE_FORBIDDEN)
         '503':
           content:
             application/json:

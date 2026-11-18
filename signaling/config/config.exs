@@ -51,3 +51,7 @@ config :phoenix,
 if config_env() == :test do
   config :discordia_signaling, :event_contract_check, :off
 end
+
+# El header x-user-id sirve para desarrollo local; nunca se acepta en producción.
+# Se decide al compilar la configuración: `Mix` no existe dentro de un release.
+config :discordia_signaling, :allow_dev_user_header, config_env() != :prod

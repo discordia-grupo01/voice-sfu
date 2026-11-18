@@ -32,7 +32,7 @@ defmodule DiscordiaSignalingWeb.AuthPlugTest do
 
     assert conn.halted
     assert conn.status == 401
-    assert Jason.decode!(conn.resp_body) == %{"error" => "unauthorized"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "UNAUTHORIZED")
   end
 
   test "rejects tokens without a subject" do

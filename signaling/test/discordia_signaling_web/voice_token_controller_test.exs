@@ -67,7 +67,7 @@ defmodule DiscordiaSignalingWeb.VoiceTokenControllerTest do
       VoiceTokenController.create(conn, %{"channel_id" => "550e8400-e29b-41d4-a716-446655440000"})
 
     assert conn.status == 403
-    assert Jason.decode!(conn.resp_body) == %{"error" => "voice_forbidden"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_FORBIDDEN")
   end
 
   test "returns service unavailable when LiveKit is not configured" do
@@ -78,7 +78,7 @@ defmodule DiscordiaSignalingWeb.VoiceTokenControllerTest do
       VoiceTokenController.create(conn, %{"channel_id" => "550e8400-e29b-41d4-a716-446655440000"})
 
     assert conn.status == 503
-    assert Jason.decode!(conn.resp_body) == %{"error" => "voice_not_configured"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_NOT_CONFIGURED")
   end
 
   test "rejects a request without a channel id" do
@@ -86,6 +86,22 @@ defmodule DiscordiaSignalingWeb.VoiceTokenControllerTest do
     conn = VoiceTokenController.create(conn, %{})
 
     assert conn.status == 400
-    assert Jason.decode!(conn.resp_body) == %{"error" => "channel_id_required"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "INVALID_BODY")
+  end
+
+  test "an unexpected LiveKit error answers 503 VOICE_UNAVAILABLE instead of crashing" do
+    user_id = "user-livekit-error"
+    VoiceSessionRegistry.switch(user_id, "voice:old-room")
+    Application.put_env(:discordia_signaling, :test_room_service_result, {:error, :bad_request})
+    conn = Plug.Conn.assign(conn(:post, "/api/voice/token"), :current_user_id, user_id)
+
+    conn =
+      VoiceTokenController.create(conn, %{"channel_id" => "550e8400-e29b-41d4-a716-446655440000"})
+
+    assert conn.status == 503
+    DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_UNAVAILABLE")
+
+    Application.put_env(:discordia_signaling, :test_room_service_result, :ok)
+    VoiceSessionRegistry.leave(user_id, "voice:old-room")
   end
 end
