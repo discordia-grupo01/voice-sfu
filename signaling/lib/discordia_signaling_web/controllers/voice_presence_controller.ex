@@ -3,6 +3,7 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
   use OpenApiSpex.ControllerSpecs
 
   alias DiscordiaSignaling.Voice.{MembershipCache, VoiceSessionRegistry}
+  alias DiscordiaSignalingWeb.ApiError
   alias DiscordiaSignalingWeb.Schemas
 
   tags(["voice"])
@@ -22,13 +23,15 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
     ],
     responses: [
       ok: {"Presencia por canal", "application/json", Schemas.Presence},
-      bad_request: {"Falta server_id", "application/json", Schemas.BadRequest},
-      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      bad_request: {"Falta server_id (INVALID_BODY)", "application/json", Schemas.ErrorResponse},
+      unauthorized:
+        {"Falta el Bearer o es inválido (UNAUTHORIZED)", "application/json",
+         Schemas.ErrorResponse},
       forbidden:
-        {"No es miembro del servidor (voice_forbidden)", "application/json",
+        {"No es miembro del servidor (VOICE_FORBIDDEN)", "application/json",
          Schemas.ErrorResponse},
       service_unavailable:
-        {"No se pudo comprobar la pertenencia (voice_unavailable)", "application/json",
+        {"No se pudo comprobar la pertenencia (VOICE_UNAVAILABLE)", "application/json",
          Schemas.ErrorResponse}
     ]
   )
@@ -50,21 +53,15 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
         json(conn, %{server_id: server_id, channels: channels_response(participants, starts)})
 
       :forbidden ->
-        conn
-        |> Plug.Conn.put_status(403)
-        |> json(%{error: "voice_forbidden"})
+        ApiError.send_error(conn, :voice_forbidden)
 
       :unavailable ->
-        conn
-        |> Plug.Conn.put_status(503)
-        |> json(%{error: "voice_unavailable"})
+        ApiError.send_error(conn, :voice_unavailable)
     end
   end
 
   def index(conn, _params) do
-    conn
-    |> Plug.Conn.put_status(400)
-    |> json(%{error: "server_id_required"})
+    ApiError.send_error(conn, :invalid_body, %{field: "server_id", reason: "required"})
   end
 
   defp channels_response(participants, starts) do

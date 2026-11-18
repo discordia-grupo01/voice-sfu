@@ -70,7 +70,7 @@ defmodule DiscordiaSignalingWeb.VoiceScreenTokenControllerTest do
     conn = request("screen-user") |> VoiceScreenTokenController.create(body())
 
     assert conn.status == 409
-    assert Jason.decode!(conn.resp_body) == %{"error" => "voice_not_in_channel"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_NOT_IN_CHANNEL")
   end
 
   test "rejects a member muted by a moderator" do
@@ -83,7 +83,7 @@ defmodule DiscordiaSignalingWeb.VoiceScreenTokenControllerTest do
       |> VoiceScreenTokenController.create(body())
 
     assert conn.status == 403
-    assert Jason.decode!(conn.resp_body) == %{"error" => "voice_screen_share_forbidden"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_SCREEN_SHARE_FORBIDDEN")
     assert :ok == Task.await(server, 5_000)
   end
 
@@ -91,14 +91,14 @@ defmodule DiscordiaSignalingWeb.VoiceScreenTokenControllerTest do
     conn = request(nil) |> VoiceScreenTokenController.create(body())
 
     assert conn.status == 403
-    assert Jason.decode!(conn.resp_body) == %{"error" => "voice_forbidden"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_FORBIDDEN")
   end
 
   test "rejects a request without a channel id" do
     conn = request("screen-user") |> VoiceScreenTokenController.create(%{})
 
     assert conn.status == 400
-    assert Jason.decode!(conn.resp_body) == %{"error" => "channel_id_required"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "INVALID_BODY")
   end
 
   defp request(user_id) do

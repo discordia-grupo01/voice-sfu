@@ -3,6 +3,7 @@ defmodule DiscordiaSignalingWeb.VoiceScreenTokenController do
   use OpenApiSpex.ControllerSpecs
 
   alias DiscordiaSignaling.Voice.{LiveKitToken, ScreenShare, VoiceAccess, VoiceSessionRegistry}
+  alias DiscordiaSignalingWeb.ApiError
   alias DiscordiaSignalingWeb.Schemas
 
   tags(["voice"])
@@ -15,13 +16,15 @@ defmodule DiscordiaSignalingWeb.VoiceScreenTokenController do
     request_body: {"Canal de voz", "application/json", Schemas.ChannelRequest, required: true},
     responses: [
       ok: {"Token emitido", "application/json", Schemas.ScreenToken},
-      bad_request: {"Falta channel_id", "application/json", Schemas.BadRequest},
-      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      bad_request: {"Falta channel_id (INVALID_BODY)", "application/json", Schemas.ErrorResponse},
+      unauthorized:
+        {"Falta el Bearer o es inválido (UNAUTHORIZED)", "application/json",
+         Schemas.ErrorResponse},
       forbidden:
-        {"Sin acceso al canal (voice_forbidden) o un moderador lo silenció (voice_screen_share_forbidden)",
+        {"Sin acceso al canal (VOICE_FORBIDDEN) o un moderador lo silenció (VOICE_SCREEN_SHARE_FORBIDDEN)",
          "application/json", Schemas.ErrorResponse},
       conflict:
-        {"El usuario no está en la sala de ese canal (voice_not_in_channel)", "application/json",
+        {"El usuario no está en la sala de ese canal (VOICE_NOT_IN_CHANNEL)", "application/json",
          Schemas.ErrorResponse},
       service_unavailable:
         {"LiveKit o la autorización no están disponibles", "application/json",
@@ -47,34 +50,16 @@ defmodule DiscordiaSignalingWeb.VoiceScreenTokenController do
           url: LiveKitToken.url()
         })
       else
-        {:error, :not_in_room} ->
-          conn |> Plug.Conn.put_status(409) |> json(%{error: "voice_not_in_channel"})
-
-        {:error, :cannot_publish} ->
-          conn |> Plug.Conn.put_status(403) |> json(%{error: "voice_screen_share_forbidden"})
-
-        {:error, :not_configured} ->
-          conn |> Plug.Conn.put_status(503) |> json(%{error: "voice_not_configured"})
-
-        {:error, :forbidden} ->
-          conn |> Plug.Conn.put_status(403) |> json(%{error: "voice_forbidden"})
-
-        {:error, :invalid_input} ->
-          conn |> Plug.Conn.put_status(400) |> json(%{error: "invalid_channel_id"})
-
-        {:error, :unavailable} ->
-          conn |> Plug.Conn.put_status(503) |> json(%{error: "voice_unavailable"})
+        {:error, reason} -> ApiError.send_voice_error(conn, reason)
       end
     catch
       :exit, {:timeout, _} ->
-        conn |> Plug.Conn.put_status(503) |> json(%{error: "voice_unavailable"})
+        ApiError.send_error(conn, :voice_unavailable)
     end
   end
 
   def create(conn, _params) do
-    conn
-    |> Plug.Conn.put_status(400)
-    |> json(%{error: "channel_id_required"})
+    ApiError.send_error(conn, :invalid_body, %{field: "channel_id", reason: "required"})
   end
 
   defp ensure_in_room(user_id, room_name) do

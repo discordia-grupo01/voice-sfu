@@ -5,6 +5,7 @@ defmodule DiscordiaSignalingWeb.VoiceTokenController do
   alias DiscordiaSignaling.Voice.LiveKitToken
   alias DiscordiaSignaling.Voice.VoiceAccess
   alias DiscordiaSignaling.Voice.VoiceSessionRegistry
+  alias DiscordiaSignalingWeb.ApiError
   alias DiscordiaSignalingWeb.Schemas
 
   tags(["voice"])
@@ -17,10 +18,12 @@ defmodule DiscordiaSignalingWeb.VoiceTokenController do
     request_body: {"Canal de voz", "application/json", Schemas.ChannelRequest, required: true},
     responses: [
       ok: {"Token emitido", "application/json", Schemas.VoiceToken},
-      bad_request: {"Falta channel_id", "application/json", Schemas.BadRequest},
-      unauthorized: {"Falta el Bearer o es inválido", "application/json", Schemas.ErrorResponse},
+      bad_request: {"Falta channel_id (INVALID_BODY)", "application/json", Schemas.ErrorResponse},
+      unauthorized:
+        {"Falta el Bearer o es inválido (UNAUTHORIZED)", "application/json",
+         Schemas.ErrorResponse},
       forbidden:
-        {"El usuario no puede entrar al canal (voice_forbidden)", "application/json",
+        {"El usuario no puede entrar al canal (VOICE_FORBIDDEN)", "application/json",
          Schemas.ErrorResponse},
       service_unavailable:
         {"LiveKit o la autorización no están disponibles", "application/json",
@@ -52,27 +55,15 @@ defmodule DiscordiaSignalingWeb.VoiceTokenController do
           url: LiveKitToken.url()
         })
       else
-        {:error, :not_configured} ->
-          conn |> Plug.Conn.put_status(503) |> json(%{error: "voice_not_configured"})
-
-        {:error, :forbidden} ->
-          conn |> Plug.Conn.put_status(403) |> json(%{error: "voice_forbidden"})
-
-        {:error, :invalid_input} ->
-          conn |> Plug.Conn.put_status(400) |> json(%{error: "invalid_channel_id"})
-
-        {:error, :unavailable} ->
-          conn |> Plug.Conn.put_status(503) |> json(%{error: "voice_unavailable"})
+        {:error, reason} -> ApiError.send_voice_error(conn, reason)
       end
     catch
       :exit, {:timeout, _} ->
-        conn |> Plug.Conn.put_status(503) |> json(%{error: "voice_unavailable"})
+        ApiError.send_error(conn, :voice_unavailable)
     end
   end
 
   def create(conn, _params) do
-    conn
-    |> Plug.Conn.put_status(400)
-    |> json(%{error: "channel_id_required"})
+    ApiError.send_error(conn, :invalid_body, %{field: "channel_id", reason: "required"})
   end
 end

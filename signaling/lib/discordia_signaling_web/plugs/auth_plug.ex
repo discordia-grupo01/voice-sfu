@@ -8,6 +8,8 @@ defmodule DiscordiaSignalingWeb.AuthPlug do
 
   import Plug.Conn
 
+  alias DiscordiaSignalingWeb.ApiError
+
   @behaviour Plug
 
   @impl true
@@ -17,10 +19,7 @@ defmodule DiscordiaSignalingWeb.AuthPlug do
   def call(conn, _opts) do
     case authenticated_user_id(conn) do
       nil ->
-        conn
-        |> put_resp_content_type("application/json")
-        |> send_resp(401, Jason.encode!(%{error: "unauthorized"}))
-        |> halt()
+        ApiError.send_error(conn, :unauthorized)
 
       user_id ->
         assign(conn, :current_user_id, user_id)
@@ -61,9 +60,7 @@ defmodule DiscordiaSignalingWeb.AuthPlug do
   defp claims_user_id(_claims), do: nil
 
   defp development_user_id(conn) do
-    if Mix.env() == :prod do
-      nil
-    else
+    if Application.get_env(:discordia_signaling, :allow_dev_user_header, false) do
       case get_req_header(conn, "x-user-id") do
         [user_id] when user_id != "" -> user_id
         _ -> nil

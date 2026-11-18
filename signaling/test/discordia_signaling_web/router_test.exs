@@ -78,7 +78,7 @@ defmodule DiscordiaSignalingWeb.RouterTest do
       |> Router.call(Router.init([]))
 
     assert conn.status == 401
-    assert Jason.decode!(conn.resp_body) == %{"error" => "unauthorized"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "UNAUTHORIZED")
   end
 
   test "accepts the servers_api flow when the authorization service approves the channel" do

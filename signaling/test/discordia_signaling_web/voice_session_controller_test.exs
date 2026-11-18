@@ -62,7 +62,7 @@ defmodule DiscordiaSignalingWeb.VoiceSessionControllerTest do
     response = VoiceSessionController.delete(authenticated_conn("session-controller-user"), %{})
 
     assert response.status == 400
-    assert Jason.decode!(response.resp_body) == %{"error" => "channel_id_required"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(response, "INVALID_BODY")
   end
 
   test "returns forbidden for an invalid identity" do
@@ -70,7 +70,7 @@ defmodule DiscordiaSignalingWeb.VoiceSessionControllerTest do
     response = VoiceSessionController.delete(conn, %{"channel_id" => @channel_id})
 
     assert response.status == 403
-    assert Jason.decode!(response.resp_body) == %{"error" => "voice_forbidden"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(response, "VOICE_FORBIDDEN")
   end
 
   test "keeps the session when LiveKit cannot disconnect the participant" do
@@ -83,8 +83,20 @@ defmodule DiscordiaSignalingWeb.VoiceSessionControllerTest do
       VoiceSessionController.delete(authenticated_conn(user_id), %{"channel_id" => @channel_id})
 
     assert response.status == 503
-    assert Jason.decode!(response.resp_body) == %{"error" => "voice_unavailable"}
+    assert DiscordiaSignaling.TestHelpers.assert_error(response, "VOICE_UNAVAILABLE")
     assert VoiceSessionRegistry.active_room(user_id) == room_name
+  end
+
+  test "an unexpected LiveKit error answers 503 VOICE_UNAVAILABLE instead of crashing" do
+    user_id = "session-controller-user"
+    VoiceSessionRegistry.switch(user_id, "voice:" <> @channel_id)
+    Application.put_env(:discordia_signaling, :test_room_service_result, {:error, :bad_request})
+
+    response =
+      VoiceSessionController.delete(authenticated_conn(user_id), %{"channel_id" => @channel_id})
+
+    assert response.status == 503
+    DiscordiaSignaling.TestHelpers.assert_error(response, "VOICE_UNAVAILABLE")
   end
 
   defp authenticated_conn(user_id) do
