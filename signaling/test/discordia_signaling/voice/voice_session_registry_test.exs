@@ -99,6 +99,30 @@ defmodule DiscordiaSignaling.Voice.VoiceSessionRegistryTest do
     assert VoiceSessionRegistry.participants("server-1") == []
   end
 
+  test "publishes dedicated private participant events instead of server presence events" do
+    assert {:ok, nil} =
+             VoiceSessionRegistry.switch(
+               "private-presence-user",
+               "private-call:call-1",
+               "Ada",
+               nil
+             )
+
+    assert_receive {:voice_presence_published,
+                    %{"event_type" => "voice.private_participant_joined"}},
+                   50
+
+    assert :ok =
+             VoiceSessionRegistry.leave(
+               "private-presence-user",
+               "private-call:call-1"
+             )
+
+    assert_receive {:voice_presence_published,
+                    %{"event_type" => "voice.private_participant_left"}},
+                   50
+  end
+
   test "stamps the leave after the join so other instances apply it" do
     assert {:ok, nil} =
              VoiceSessionRegistry.switch("stamp-user", "voice:room-1", "Ada", "server-1")

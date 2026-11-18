@@ -9,7 +9,13 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   use GenServer
   require Logger
 
-  alias DiscordiaSignaling.Voice.{LiveKitRoomService, LiveKitToken, ScreenShare, VoiceAccess}
+  alias DiscordiaSignaling.Voice.{
+    LiveKitRoomService,
+    LiveKitToken,
+    ScreenShare,
+    VoiceAccess,
+    VoiceSessionRegistry
+  }
 
   @table :private_voice_calls
   @timeout_ms 30_000
@@ -48,6 +54,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   @impl true
   def handle_call({:start, caller, recipient, conversation, auth}, _from, state) do
     with :ok <- validate_ids(caller, recipient),
+         :ok <- validate_conversation(conversation),
          {:ok, details} <- authorize_contact(caller, recipient, conversation, auth),
          {:ok, resolved_conversation} <- resolve_conversation(conversation, details),
          :ok <- no_active_call(caller, recipient) do
@@ -149,7 +156,16 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   end
 
   def handle_call({:reconcile, participants}, _from, state) do
-    identities_by_room = Enum.group_by(participants, & &1.room_name, & &1.identity)
+    identities_by_room =
+      participants
+      |> Enum.group_by(& &1.room_name, & &1.identity)
+      |> Enum.reduce(%{}, fn {room_name, identities}, acc ->
+        remote =
+          VoiceSessionRegistry.private_participants(room_name)
+
+        Map.put(acc, room_name, Enum.uniq(identities ++ remote))
+      end)
+
     now = System.system_time(:millisecond)
 
     for {_call_id, %{status: :active} = call} <- :ets.tab2list(@table) do
@@ -245,6 +261,14 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
        do: :ok
 
   defp validate_ids(_, _), do: {:error, :invalid_input}
+
+  defp validate_conversation(nil), do: :ok
+
+  defp validate_conversation(conversation)
+       when is_binary(conversation) and conversation != "",
+       do: :ok
+
+  defp validate_conversation(_conversation), do: {:error, :invalid_input}
 
   defp resolve_conversation(conversation_id, _details)
        when is_binary(conversation_id) and conversation_id != "",

@@ -101,6 +101,7 @@ components:
       properties:
         conversation_id:
           description: Conversación directa existente. Puede omitirse para abrir una conversación desde un borrador.
+          format: uuid
           minLength: 1
           nullable: true
           type: string

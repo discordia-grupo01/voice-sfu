@@ -151,6 +151,7 @@ defmodule DiscordiaSignalingWeb.Schemas do
         },
         conversation_id: %Schema{
           type: :string,
+          format: :uuid,
           minLength: 1,
           nullable: true,
           description:

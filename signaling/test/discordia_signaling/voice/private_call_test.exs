@@ -45,6 +45,16 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
     assert call.conversation_id == "550e8400-e29b-41d4-a716-446655440001"
   end
 
+  test "rejects a non-string conversation id" do
+    assert {:error, :invalid_input} =
+             PrivateCall.start(
+               "caller-invalid",
+               "recipient-invalid",
+               %{},
+               "Bearer token"
+             )
+  end
+
   test "replicates a remote call lifecycle and preserves the end reason" do
     subscribe_users(["remote-caller", "remote-recipient"])
 
