@@ -37,6 +37,14 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
     assert call_id == call.id
   end
 
+  test "starts a call from a draft and resolves a direct conversation" do
+    assert {:ok, call} =
+             PrivateCall.start("caller-draft", "recipient-draft", nil, "Bearer token")
+
+    assert call.status == :ringing
+    assert call.conversation_id == "conversation-recipient-draft"
+  end
+
   test "replicates a remote call lifecycle and preserves the end reason" do
     subscribe_users(["remote-caller", "remote-recipient"])
 

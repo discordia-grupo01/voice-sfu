@@ -47,8 +47,9 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
 
   @impl true
   def handle_call({:start, caller, recipient, conversation, auth}, _from, state) do
-    with :ok <- validate_ids(caller, recipient, conversation),
-         {:ok, _details} <- authorize_contact(caller, recipient, conversation, auth),
+    with :ok <- validate_ids(caller, recipient),
+         {:ok, details} <- authorize_contact(caller, recipient, conversation, auth),
+         {:ok, resolved_conversation} <- resolve_conversation(conversation, details),
          :ok <- no_active_call(caller, recipient) do
       call_id = call_id()
 
@@ -56,7 +57,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
         id: call_id,
         caller_id: caller,
         recipient_id: recipient,
-        conversation_id: conversation,
+        conversation_id: resolved_conversation,
         room_name: "private-call:" <> call_id,
         status: :ringing,
         inserted_at: System.system_time(:millisecond),
@@ -238,12 +239,30 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
     if active, do: {:error, :call_already_exists}, else: :ok
   end
 
-  defp validate_ids(caller, recipient, conversation)
+  defp validate_ids(caller, recipient)
        when is_binary(caller) and caller != "" and is_binary(recipient) and recipient != "" and
-              caller != recipient and is_binary(conversation) and conversation != "",
+              caller != recipient,
        do: :ok
 
-  defp validate_ids(_, _, _), do: {:error, :invalid_input}
+  defp validate_ids(_, _), do: {:error, :invalid_input}
+
+  defp resolve_conversation(conversation_id, _details)
+       when is_binary(conversation_id) and conversation_id != "",
+       do: {:ok, conversation_id}
+
+  defp resolve_conversation(_conversation_id, details) when is_map(details) do
+    resolved =
+      Map.get(details, :conversation_id) ||
+        Map.get(details, "conversation_id")
+
+    if is_binary(resolved) and resolved != "" do
+      {:ok, resolved}
+    else
+      {:error, :invalid_input}
+    end
+  end
+
+  defp resolve_conversation(_conversation_id, _details), do: {:error, :invalid_input}
 
   defp fetch(call_id) do
     case :ets.lookup(@table, call_id) do

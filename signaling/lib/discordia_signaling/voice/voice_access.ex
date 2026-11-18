@@ -202,10 +202,10 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
     end
   end
 
-  @spec authorize_private_contact(String.t(), String.t(), String.t(), String.t() | nil) ::
+  @spec authorize_private_contact(String.t(), String.t(), String.t() | nil, String.t() | nil) ::
           {:ok, map()} | {:error, atom()}
   def authorize_private_contact(user_id, recipient_id, conversation_id, authorization_header)
-      when is_binary(user_id) and is_binary(recipient_id) and is_binary(conversation_id) do
+      when is_binary(user_id) and is_binary(recipient_id) do
     if user_id == recipient_id do
       {:error, :forbidden}
     else
@@ -242,14 +242,19 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
     base_url = Application.get_env(:discordia_signaling, :messaging, [])[:url]
 
     if is_binary(base_url) and base_url != "" do
-      {:ok,
-       String.to_charlist(
-         base_url <>
-           "/v1/voice-access/" <>
-           URI.encode(recipient_id) <>
-           "?conversation_id=" <>
-           URI.encode(conversation_id)
-       )}
+      url =
+        base_url <>
+          "/v1/voice-access/" <>
+          URI.encode(recipient_id)
+
+      url =
+        if is_binary(conversation_id) and conversation_id != "" do
+          url <> "?conversation_id=" <> URI.encode(conversation_id)
+        else
+          url
+        end
+
+      {:ok, String.to_charlist(url)}
     else
       :error
     end
@@ -267,8 +272,15 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
          ) do
       {:ok, {{_, 200, _}, _headers, body}} ->
         case Jason.decode(body) do
-          {:ok, %{"allowed" => true}} -> {:ok, %{allowed: true}}
-          _ -> {:error, :forbidden}
+          {:ok, %{"allowed" => true} = response} ->
+            {:ok,
+             %{
+               allowed: true,
+               conversation_id: Map.get(response, "conversation_id")
+             }}
+
+          _ ->
+            {:error, :forbidden}
         end
 
       {:ok, {{_, status, _}, _headers, _body}} when status in [401, 403, 404] ->

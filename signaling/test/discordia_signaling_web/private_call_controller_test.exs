@@ -54,6 +54,21 @@ defmodule DiscordiaSignalingWeb.PrivateCallControllerTest do
     assert DiscordiaSignaling.TestHelpers.assert_error(conn, "INVALID_BODY")
   end
 
+  test "creates a private call for a draft without a conversation id" do
+    conn =
+      request("caller-draft-controller")
+      |> Plug.Conn.put_req_header("authorization", "Bearer token")
+
+    conn =
+      PrivateCallController.create(conn, %{
+        "recipient_id" => "recipient-draft-controller"
+      })
+
+    assert conn.status == 201
+    response = Jason.decode!(conn.resp_body)
+    assert response["conversation_id"] == "conversation-recipient-draft-controller"
+  end
+
   test "rejects and finishes calls through their controller actions" do
     rejected = start_call("caller-reject", "recipient-reject")
 

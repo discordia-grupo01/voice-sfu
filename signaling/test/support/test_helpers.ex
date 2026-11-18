@@ -95,11 +95,18 @@ defmodule DiscordiaSignaling.TestPrivateCallAuthorizer do
   def authorize_private_contact(user_id, recipient_id, conversation_id, _authorization_header) do
     case Application.get_env(:discordia_signaling, :test_private_call_authorization, :ok) do
       :ok ->
+        resolved_conversation =
+          if is_binary(conversation_id) and conversation_id != "" do
+            conversation_id
+          else
+            "conversation-" <> recipient_id
+          end
+
         {:ok,
          %{
            user_id: user_id,
            recipient_id: recipient_id,
-           conversation_id: conversation_id
+           conversation_id: resolved_conversation
          }}
 
       result ->

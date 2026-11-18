@@ -37,7 +37,8 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
     ]
   )
 
-  def create(conn, %{"recipient_id" => recipient_id, "conversation_id" => conversation_id}) do
+  def create(conn, %{"recipient_id" => recipient_id} = params) do
+    conversation_id = Map.get(params, "conversation_id")
     auth = List.first(Plug.Conn.get_req_header(conn, "authorization"))
 
     case PrivateCall.start(
