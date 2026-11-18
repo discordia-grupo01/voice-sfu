@@ -31,4 +31,12 @@ defmodule DiscordiaSignalingWeb.ApiSpecTest do
   test "declares the bearer scheme" do
     assert %{"bearerAuth" => %{scheme: "bearer"}} = ApiSpec.spec().components.securitySchemes
   end
+
+  test "private call requests allow an omitted or explicit conversation" do
+    spec = ApiSpec.spec()
+    request = spec.components.schemas["CallRequest"]
+
+    assert request.required == [:recipient_id]
+    assert Map.has_key?(request.properties, :conversation_id)
+  end
 end

@@ -32,6 +32,45 @@ defmodule DiscordiaSignaling.Events.PresenceConsumerTest do
     assert VoiceSessionRegistry.active_room(user_id) == nil
   end
 
+  test "replicates private participant events without server presence fields" do
+    user_id = "private-consumer-user"
+    room_name = "private-call:private-consumer-call"
+
+    payload =
+      Jason.encode!(%{
+        "event_id" => "550e8400-e29b-41d4-a716-446655440020",
+        "occurred_at" => "2026-11-18T22:20:00Z",
+        "call_id" => "private-consumer-call",
+        "room_name" => room_name,
+        "participant_id" => user_id,
+        "name" => "Ada"
+      })
+
+    assert :ack =
+             PresenceConsumer.process_payload(
+               "voice.private_participant_joined",
+               payload
+             )
+
+    assert VoiceSessionRegistry.active_room(user_id) == room_name
+    assert user_id in VoiceSessionRegistry.private_participants(room_name)
+
+    left =
+      payload
+      |> Jason.decode!()
+      |> Map.put("occurred_at", "2026-11-18T22:21:00Z")
+      |> Map.put("event_id", "550e8400-e29b-41d4-a716-446655440021")
+      |> Jason.encode!()
+
+    assert :ack =
+             PresenceConsumer.process_payload(
+               "voice.private_participant_left",
+               left
+             )
+
+    assert VoiceSessionRegistry.active_room(user_id) == nil
+  end
+
   test "acks malformed or unsupported events without changing state" do
     assert :ack = PresenceConsumer.process_payload("voice.participant_joined", "not-json")
     assert :ack = PresenceConsumer.process_payload("voice.participant_joined", "[]")

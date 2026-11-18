@@ -36,14 +36,14 @@ defmodule DiscordiaSignalingWeb.PrivateCallControllerTest do
     conn =
       PrivateCallController.create(conn, %{
         "recipient_id" => "recipient-create",
-        "conversation_id" => "conversation-create"
+        "conversation_id" => "550e8400-e29b-41d4-a716-446655440002"
       })
 
     assert conn.status == 201
     response = Jason.decode!(conn.resp_body)
     assert response["caller_id"] == "caller-create"
     assert response["recipient_id"] == "recipient-create"
-    assert response["conversation_id"] == "conversation-create"
+    assert response["conversation_id"] == "550e8400-e29b-41d4-a716-446655440002"
     assert response["status"] == "ringing"
   end
 
@@ -52,6 +52,36 @@ defmodule DiscordiaSignalingWeb.PrivateCallControllerTest do
 
     assert conn.status == 400
     assert DiscordiaSignaling.TestHelpers.assert_error(conn, "INVALID_BODY")
+  end
+
+  test "rejects a non-string conversation id" do
+    conn =
+      request("caller-invalid-conversation")
+      |> Plug.Conn.put_req_header("authorization", "Bearer token")
+
+    conn =
+      PrivateCallController.create(conn, %{
+        "recipient_id" => "recipient-invalid-conversation",
+        "conversation_id" => %{}
+      })
+
+    assert conn.status == 400
+    assert DiscordiaSignaling.TestHelpers.assert_error(conn, "INVALID_BODY")
+  end
+
+  test "creates a private call for a draft without a conversation id" do
+    conn =
+      request("caller-draft-controller")
+      |> Plug.Conn.put_req_header("authorization", "Bearer token")
+
+    conn =
+      PrivateCallController.create(conn, %{
+        "recipient_id" => "recipient-draft-controller"
+      })
+
+    assert conn.status == 201
+    response = Jason.decode!(conn.resp_body)
+    assert response["conversation_id"] == "550e8400-e29b-41d4-a716-446655440001"
   end
 
   test "rejects and finishes calls through their controller actions" do

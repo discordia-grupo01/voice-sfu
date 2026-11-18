@@ -9,12 +9,28 @@ Uso: messaging_stub.py <puerto> [direccion]   (solo para localhost)
 """
 import json
 import sys
+import re
+from urllib.parse import parse_qs, urlparse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
-        body = json.dumps({"allowed": True}).encode()
+        parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
+        conversation_id = query.get("conversation_id", [None])[0]
+        uuid_pattern = re.compile(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
+            r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            re.IGNORECASE,
+        )
+
+        if not conversation_id or not uuid_pattern.match(conversation_id):
+            conversation_id = "550e8400-e29b-41d4-a716-446655440001"
+
+        body = json.dumps(
+            {"allowed": True, "conversation_id": conversation_id}
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))

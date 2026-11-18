@@ -84,7 +84,7 @@ def main():
         "/api/voice/calls",
         201,
         bearer=TOKEN_A,
-        body={"recipient_id": USER_B, "conversation_id": CONVERSATION},
+        body={"recipient_id": USER_B},
     )
     call_id = created.json()["call_id"]
     call("POST", "/api/voice/calls/{id}/accept", 200, bearer=TOKEN_B, path_parameters={"id": call_id})
