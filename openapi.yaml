@@ -100,8 +100,9 @@ components:
     CallRequest:
       properties:
         conversation_id:
-          description: Conversación directa entre ambos.
+          description: Conversación directa existente. Puede omitirse para abrir una conversación desde un borrador.
           minLength: 1
+          nullable: true
           type: string
           x-struct:
           x-validate:
@@ -113,7 +114,6 @@ components:
           x-validate:
       required:
         - recipient_id
-        - conversation_id
       title: CallRequest
       type: object
       x-struct: Elixir.DiscordiaSignalingWeb.Schemas.CallRequest
