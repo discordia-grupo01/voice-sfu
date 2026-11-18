@@ -66,7 +66,7 @@ defmodule DiscordiaSignalingWeb.PrivateCallControllerTest do
 
     assert conn.status == 201
     response = Jason.decode!(conn.resp_body)
-    assert response["conversation_id"] == "conversation-recipient-draft-controller"
+    assert response["conversation_id"] == "550e8400-e29b-41d4-a716-446655440001"
   end
 
   test "rejects and finishes calls through their controller actions" do

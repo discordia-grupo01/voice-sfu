@@ -42,7 +42,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
              PrivateCall.start("caller-draft", "recipient-draft", nil, "Bearer token")
 
     assert call.status == :ringing
-    assert call.conversation_id == "conversation-recipient-draft"
+    assert call.conversation_id == "550e8400-e29b-41d4-a716-446655440001"
   end
 
   test "replicates a remote call lifecycle and preserves the end reason" do

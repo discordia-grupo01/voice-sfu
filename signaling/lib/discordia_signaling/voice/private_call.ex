@@ -431,7 +431,7 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
       Map.merge(
         %{
           "event_type" => "voice.private_call",
-          "event_id" => call_id(),
+          "event_id" => event_uuid(),
           "occurred_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
           "call_id" => call.id,
           "conversation_id" => call.conversation_id,
@@ -447,4 +447,11 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
 
   defp call_id,
     do: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+
+  defp event_uuid do
+    <<a::32, b::16, c::16, d::16, e::48>> = :crypto.strong_rand_bytes(16)
+    "#{hex(a, 8)}-#{hex(b, 4)}-#{hex(c, 4)}-#{hex(d, 4)}-#{hex(e, 12)}"
+  end
+
+  defp hex(value, size), do: value |> Integer.to_string(16) |> String.pad_leading(size, "0")
 end

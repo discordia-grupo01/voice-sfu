@@ -99,7 +99,7 @@ defmodule DiscordiaSignaling.TestPrivateCallAuthorizer do
           if is_binary(conversation_id) and conversation_id != "" do
             conversation_id
           else
-            "conversation-" <> recipient_id
+            "550e8400-e29b-41d4-a716-446655440001"
           end
 
         {:ok,

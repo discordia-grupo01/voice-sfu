@@ -18,10 +18,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
         conversation_id = query.get("conversation_id", [None])[0]
-        recipient_id = parsed.path.rstrip("/").split("/")[-1]
 
         if not conversation_id:
-            conversation_id = "draft-" + recipient_id
+            conversation_id = "550e8400-e29b-41d4-a716-446655440001"
 
         body = json.dumps(
             {"allowed": True, "conversation_id": conversation_id}
