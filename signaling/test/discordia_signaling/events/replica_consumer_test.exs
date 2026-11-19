@@ -48,6 +48,7 @@ defmodule DiscordiaSignaling.Events.ReplicaConsumerTest do
 
     assert {:noreply, next_state} = ReplicaConsumer.handle_info(:connect, state)
     assert next_state.connection == nil
+    assert next_state.backoff.delay == 2_000
     assert_receive :connect, 1_500
   end
 

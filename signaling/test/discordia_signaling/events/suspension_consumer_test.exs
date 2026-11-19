@@ -565,6 +565,7 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
       assert state.exchange == "discordia.events"
       assert state.connection == nil
       assert state.channel == nil
+      assert state.backoff.delay == 1_000
       assert_receive :connect
     end
 
