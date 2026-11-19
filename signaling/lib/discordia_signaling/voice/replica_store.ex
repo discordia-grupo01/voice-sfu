@@ -493,40 +493,47 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
 
   defp postgres_ssl("disable", _host), do: []
 
-  # Igual que libpq: "require" cifra la conexion pero no valida el certificado.
-  # Los poolers de Supabase firman con una CA propia que no esta en el bundle
-  # del sistema, asi que verificar por defecto los dejaba sin conexion.
-  defp postgres_ssl("require", host) do
+  # "require" valida el certificado igual que "verify-full": cifrar sin validar
+  # deja la conexion expuesta a un intermediario.
+  defp postgres_ssl("require", host), do: postgres_ssl("verify-full", host)
+
+  # Confia en el bundle del sistema y en las CA extra: DATABASE_CA_CERTFILE, o
+  # priv/certs/*.crt (ahi va la CA de Supabase, que no esta en el bundle del sistema).
+  defp postgres_ssl("verify-full", host) do
     [
       ssl: [
-        verify: :verify_none,
-        server_name_indication: String.to_charlist(host || "localhost")
+        verify: :verify_peer,
+        cacerts: :public_key.cacerts_get() ++ extra_ca_certs(),
+        server_name_indication: String.to_charlist(host || "localhost"),
+        customize_hostname_check: [
+          match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
+        ]
       ]
     ]
   end
 
-  # Verificacion completa, solo si se pide con DATABASE_SSLMODE=verify-full.
-  # DATABASE_CA_CERTFILE permite indicar la CA del proveedor.
-  defp postgres_ssl("verify-full", host) do
-    ca =
+  defp extra_ca_certs do
+    files =
       case System.get_env("DATABASE_CA_CERTFILE") do
         file when file not in [nil, ""] ->
-          [cacertfile: String.to_charlist(file)]
+          [file]
 
         _ ->
-          [cacerts: :public_key.cacerts_get()]
+          :discordia_signaling
+          |> Application.app_dir("priv/certs")
+          |> Path.join("*.crt")
+          |> Path.wildcard()
       end
 
-    [
-      ssl:
-        [
-          verify: :verify_peer,
-          server_name_indication: String.to_charlist(host || "localhost"),
-          customize_hostname_check: [
-            match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
-          ]
-        ] ++ ca
-    ]
+    Enum.flat_map(files, fn file ->
+      case File.read(file) do
+        {:ok, pem} ->
+          for {:Certificate, der, :not_encrypted} <- :public_key.pem_decode(pem), do: der
+
+        {:error, _} ->
+          []
+      end
+    end)
   end
 
   defp postgres_ssl(_unknown, host), do: postgres_ssl(default_sslmode(host), host)
