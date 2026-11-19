@@ -491,7 +491,7 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
   end
 
   defp postgres_ssl("disable", _host), do: []
-  defp postgres_ssl("require", _host), do: [ssl: [verify: :verify_none]]
+  defp postgres_ssl("require", host), do: postgres_ssl("verify-full", host)
 
   defp postgres_ssl("verify-full", host) do
     [
