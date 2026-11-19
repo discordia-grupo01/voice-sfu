@@ -512,6 +512,8 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
     ]
   end
 
+  defp postgres_ssl(_unknown, host), do: postgres_ssl(default_sslmode(host), host)
+
   defp extra_ca_certs do
     files =
       case System.get_env("DATABASE_CA_CERTFILE") do
@@ -535,8 +537,6 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
       end
     end)
   end
-
-  defp postgres_ssl(_unknown, host), do: postgres_ssl(default_sslmode(host), host)
 
   # db.<ref>.supabase.co solo tiene IPv6: sin :inet6 el connect falla con nxdomain.
   defp ip_family_options(nil), do: []
