@@ -141,7 +141,10 @@ config :discordia_signaling, :replica,
   database_url:
     System.get_env(
       "VOICE_REPLICA_DATABASE_URL",
-      "postgres://discordia:discordia@db:5432/discordia_voice"
+      System.get_env(
+        "DATABASE_URL",
+        "postgres://discordia:discordia@db:5432/discordia_voice"
+      )
     )
 
 config :discordia_signaling, :voice_events,
@@ -150,7 +153,10 @@ config :discordia_signaling, :voice_events,
       "VOICE_EVENTS_DATABASE_URL",
       System.get_env(
         "VOICE_REPLICA_DATABASE_URL",
-        "postgres://discordia:discordia@db:5432/discordia_voice"
+        System.get_env(
+          "DATABASE_URL",
+          "postgres://discordia:discordia@db:5432/discordia_voice"
+        )
       )
     )
 

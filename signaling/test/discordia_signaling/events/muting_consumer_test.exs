@@ -22,6 +22,22 @@ defmodule DiscordiaSignaling.Events.MutingConsumerTest do
     :ok
   end
 
+  test "initializes backoff and grows it after a broker connection failure" do
+    assert {:ok, state} =
+             MutingConsumer.init(
+               rabbitmq_url: "amqp://127.0.0.1:1",
+               exchange: "discordia.events",
+               queue: "voice.muting.test"
+             )
+
+    assert state.backoff.delay == 1_000
+
+    assert {:noreply, next_state} = MutingConsumer.handle_info(:connect, state)
+    assert next_state.connection == nil
+    assert next_state.backoff.delay == 2_000
+    assert_receive :connect, 1_500
+  end
+
   test "disables publishing without removing the active session" do
     payload =
       Jason.encode!(%{

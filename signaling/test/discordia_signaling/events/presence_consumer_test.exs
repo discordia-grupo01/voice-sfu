@@ -126,6 +126,22 @@ defmodule DiscordiaSignaling.Events.PresenceConsumerTest do
     assert_receive :connect
   end
 
+  test "initializes backoff and grows it after a broker connection failure" do
+    assert {:ok, state} =
+             PresenceConsumer.init(
+               rabbitmq_url: "amqp://127.0.0.1:1",
+               exchange: "discordia.events",
+               queue: "voice.presence.test"
+             )
+
+    assert state.backoff.delay == 1_000
+
+    assert {:noreply, next_state} = PresenceConsumer.handle_info(:connect, state)
+    assert next_state.connection == nil
+    assert next_state.backoff.delay == 2_000
+    assert_receive :connect, 1_500
+  end
+
   test "stops cleanly when the broker cancels the consumer" do
     state = %{connection: nil, channel: nil, queue: "q", exchange: "e", url: "u", attempts: %{}}
 
