@@ -103,7 +103,7 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
   def ping, do: GenServer.call(__MODULE__, :ping, 2_000)
 
   def enqueue_outbox(event),
-    do: GenServer.call(__MODULE__, {:enqueue_outbox, event}, 1_000)
+    do: GenServer.call(__MODULE__, {:enqueue_outbox, event}, 5_000)
 
   def pending_outbox(limit \\ 100),
     do: GenServer.call(__MODULE__, {:pending_outbox, limit}, 5_000)
