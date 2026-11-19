@@ -15,6 +15,7 @@ defmodule DiscordiaSignaling.Application do
         log_shipper_child(),
         {Phoenix.PubSub, name: DiscordiaSignaling.PubSub},
         DiscordiaSignaling.Voice.VoicePresencePublisher,
+        DiscordiaSignaling.CircuitBreaker,
         DiscordiaSignaling.Voice.VoiceSessionRegistry,
         DiscordiaSignaling.Voice.PrivateCall,
         DiscordiaSignaling.Voice.MembershipCache,
