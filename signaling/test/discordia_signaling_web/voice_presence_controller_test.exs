@@ -170,6 +170,28 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
       assert DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_UNAVAILABLE")
     end
 
+    test "stops asking the servers API while it keeps failing and answers unavailable" do
+      url = DiscordiaSignaling.StubHTTP.start(status: 503, notify: self())
+      Application.put_env(:discordia_signaling, :servers, url: url, authz_mode: "servers_api")
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        for n <- 1..5 do
+          Application.put_env(:discordia_signaling, :servers, url: url, authz_mode: "servers_api")
+          MembershipCache.clear()
+          assert participants_request("Bearer token", "user-#{n}").status == 503
+        end
+      end)
+
+      for _ <- 1..5, do: assert_received({:stub_request, "GET", _path, _headers})
+
+      MembershipCache.clear()
+      conn = participants_request("Bearer token", "user-6")
+
+      assert conn.status == 503
+      assert DiscordiaSignaling.TestHelpers.assert_error(conn, "VOICE_UNAVAILABLE")
+      refute_received {:stub_request, _method, _path, _headers}
+    end
+
     test "answers unavailable when the servers API cannot be reached" do
       {:ok, listen} = :gen_tcp.listen(0, [])
       {:ok, port} = :inet.port(listen)
