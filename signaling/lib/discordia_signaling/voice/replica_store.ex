@@ -147,7 +147,6 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
   def handle_info(:connect, %{conn: nil} = state), do: start_database_connect(state)
 
   def handle_info({:database_connected, conn}, state) do
-    Process.link(conn)
     Process.monitor(conn)
     Logger.info("voice_replica_database_connected")
     {:noreply, %{state | conn: conn, ready: true}}
@@ -453,6 +452,12 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
 
   defp connection_options(url) do
     uri = URI.parse(url)
+    query = URI.decode_query(uri.query || "")
+
+    sslmode =
+      System.get_env("DATABASE_SSLMODE") ||
+        Map.get(query, "sslmode") ||
+        default_sslmode(uri.host)
 
     {username, password} =
       case uri.userinfo do
@@ -470,14 +475,38 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
       hostname: String.to_charlist(uri.host || "localhost"),
       port: uri.port || 5432,
       database: String.trim_leading(uri.path || "/discordia_voice", "/"),
-      pool_size: 1
+      pool_size: 1,
+      prepare: :unnamed
     ]
     |> maybe_put(:username, username)
     |> maybe_put(:password, password)
+    |> Keyword.merge(postgres_ssl(sslmode, uri.host))
   end
 
   defp maybe_put(options, _key, nil), do: options
   defp maybe_put(options, key, value), do: Keyword.put(options, key, value)
+
+  defp default_sslmode(host) do
+    if host in [nil, "localhost", "127.0.0.1", "::1"], do: "disable", else: "require"
+  end
+
+  defp postgres_ssl("disable", _host), do: []
+  defp postgres_ssl("require", _host), do: [ssl: [verify: :verify_none]]
+
+  defp postgres_ssl("verify-full", host) do
+    [
+      ssl: [
+        verify: :verify_peer,
+        cacerts: :public_key.cacerts_get(),
+        server_name_indication: String.to_charlist(host || "localhost"),
+        customize_hostname_check: [
+          match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
+        ]
+      ]
+    ]
+  end
+
+  defp postgres_ssl(_unknown, host), do: postgres_ssl(default_sslmode(host), host)
 
   defp apply_in_transaction(tx, routing_key, event) do
     try do

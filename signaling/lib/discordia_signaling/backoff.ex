@@ -1,7 +1,7 @@
 defmodule DiscordiaSignaling.Backoff do
   @moduledoc false
 
-  @initial 1_000
+  @initial 2_000
   @max 30_000
 
   def init(state), do: Map.put(state, :backoff, %{delay: @initial, max: @max})

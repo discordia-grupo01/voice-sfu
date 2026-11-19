@@ -77,12 +77,12 @@ defmodule DiscordiaSignaling.Events.ReplicaConsumer do
     attempts =
       case result do
         :database_retry ->
-          Process.sleep(1_000)
+          Process.sleep(2_000)
           AMQP.Basic.nack(state.channel, meta.delivery_tag, requeue: true)
           state.attempts
 
         :retry ->
-          Process.sleep(1_000)
+          Process.sleep(2_000)
           AMQP.Basic.nack(state.channel, meta.delivery_tag, requeue: true)
           state.attempts
 
