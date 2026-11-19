@@ -491,13 +491,20 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
   end
 
   defp postgres_ssl("disable", _host), do: []
+
   defp postgres_ssl("require", host), do: postgres_ssl("verify-full", host)
 
   defp postgres_ssl("verify-full", host) do
+    cacertfile =
+      System.get_env(
+        "DATABASE_CA_CERTFILE",
+        "/etc/ssl/cert.pem"
+      )
+
     [
       ssl: [
         verify: :verify_peer,
-        cacerts: :public_key.cacerts_get(),
+        cacertfile: String.to_charlist(cacertfile),
         server_name_indication: String.to_charlist(host || "localhost"),
         customize_hostname_check: [
           match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
@@ -505,6 +512,8 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
       ]
     ]
   end
+
+  defp postgres_ssl(_unknown, host), do: postgres_ssl(default_sslmode(host), host)
 
   defp postgres_ssl(_unknown, host), do: postgres_ssl(default_sslmode(host), host)
 
