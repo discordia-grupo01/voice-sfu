@@ -62,6 +62,29 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisherTest do
     assert next_state.backoff == 2_000
   end
 
+  test "invalid outbox payload returns an explicit error and does not mark it published" do
+    previous_store = Application.get_env(:discordia_signaling, :voice_event_store)
+
+    Application.put_env(
+      :discordia_signaling,
+      :voice_event_store,
+      DiscordiaSignaling.Voice.InvalidPayloadStore
+    )
+
+    on_exit(fn ->
+      if previous_store do
+        Application.put_env(:discordia_signaling, :voice_event_store, previous_store)
+      else
+        Application.delete_env(:discordia_signaling, :voice_event_store)
+      end
+    end)
+
+    state = %{state() | conn: :fake_connection, chan: :fake_channel}
+    assert {:noreply, next_state} = VoicePresencePublisher.handle_info(:drain, state)
+    assert next_state.chan == nil
+    assert next_state.backoff == 2_000
+  end
+
   test "ignores unrelated messages and exits" do
     state = state()
 
@@ -143,4 +166,11 @@ end
 
 defmodule DiscordiaSignaling.Voice.NoopStore do
   def enqueue_outbox(_event), do: :ok
+end
+
+defmodule DiscordiaSignaling.Voice.InvalidPayloadStore do
+  def pending_outbox(_limit),
+    do: {:ok, [%{event_id: "invalid-1", payload: "{not-json"}]}
+
+  def mark_outbox_published(_event_id), do: :ok
 end

@@ -49,15 +49,17 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
 
   @impl true
   def init(opts) do
-    state = %{
-      url: Keyword.fetch!(opts, :rabbitmq_url),
-      exchange: Keyword.get(opts, :exchange, @default_exchange),
-      queue: Keyword.get(opts, :queue, @default_queue),
-      secret: Keyword.get(opts, :hmac_secret, ""),
-      connection: nil,
-      channel: nil,
-      attempts: %{}
-    }
+    state =
+      %{
+        url: Keyword.fetch!(opts, :rabbitmq_url),
+        exchange: Keyword.get(opts, :exchange, @default_exchange),
+        queue: Keyword.get(opts, :queue, @default_queue),
+        secret: Keyword.get(opts, :hmac_secret, ""),
+        connection: nil,
+        channel: nil,
+        attempts: %{}
+      }
+      |> DiscordiaSignaling.Backoff.init()
 
     send(self(), :connect)
     {:ok, state}
@@ -69,7 +71,13 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
       {:ok, connection, channel} ->
         Process.monitor(connection.pid)
         Logger.info("voice_suspension_consumer_connected", queue: state.queue)
-        {:noreply, %{state | connection: connection, channel: channel}}
+
+        state =
+          state
+          |> DiscordiaSignaling.Backoff.reset()
+          |> Map.merge(%{connection: connection, channel: channel})
+
+        {:noreply, state}
 
       {:error, reason} ->
         Logger.warning("voice_suspension_consumer_connect_failed",
@@ -78,8 +86,9 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumer do
           exchange: state.exchange
         )
 
-        Process.send_after(self(), :connect, 1_000)
-        {:noreply, state}
+        {delay, new_state} = DiscordiaSignaling.Backoff.next_delay(state)
+        Process.send_after(self(), :connect, delay)
+        {:noreply, new_state}
     end
   end
 

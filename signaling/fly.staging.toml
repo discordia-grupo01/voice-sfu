@@ -10,7 +10,6 @@ primary_region = "gru"
   VOICE_AUTHZ_MODE = "servers_api"
   EVENTS_EXCHANGE = "discordia.events"
   VOICE_EVENTS_QUEUE = "voice.signaling"
-  VOICE_INSTANCE_ID = "local-signaling-1"
   PHOENIX_CHECK_ORIGINS = "https://discordia-g1.vercel.app,http://localhost:3000,http://127.0.0.1:3000"
 
 [[services]]

@@ -13,8 +13,16 @@ fi
                 --socket=/var/run/tailscale/tailscaled.sock &
 
 # Si Tailscale no conecta, la app arranca igual (el publisher reintenta solo)
+HOSTNAME_SUFFIX="${FLY_ALLOC_ID:-${FLY_MACHINE_ID:-}}"
+if [ -n "$HOSTNAME_SUFFIX" ]; then
+  TAILSCALE_HOSTNAME="discordia-${HOSTNAME_SUFFIX}"
+else
+  TAILSCALE_HOSTNAME="discordia-signaling"
+fi
+
 /app/tailscale up --auth-key="${TAILSCALE_AUTHKEY}" \
-                  --hostname="discordia-signaling" \
+                  --hostname="${TAILSCALE_HOSTNAME}" \
+                  --accept-dns=false \
                   --timeout=30s \
   || echo "tailscale up falló, arranco la app igual"
 

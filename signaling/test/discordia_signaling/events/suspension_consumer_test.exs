@@ -581,7 +581,11 @@ defmodule DiscordiaSignaling.Events.SuspensionConsumerTest do
 
       log =
         capture_log([level: :warning], fn ->
-          assert {:noreply, ^state} = SuspensionConsumer.handle_info(:connect, state)
+          assert {:noreply, next_state} =
+                   SuspensionConsumer.handle_info(:connect, state)
+
+          assert next_state.connection == nil
+          assert next_state.backoff.delay == 2_000
         end)
 
       assert log =~ "voice_suspension_consumer_connect_failed"
