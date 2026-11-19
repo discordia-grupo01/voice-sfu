@@ -106,16 +106,16 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
     do: GenServer.call(__MODULE__, {:enqueue_outbox, event}, 1_000)
 
   def pending_outbox(limit \\ 100),
-    do: GenServer.call(__MODULE__, {:pending_outbox, limit}, 1_000)
+    do: GenServer.call(__MODULE__, {:pending_outbox, limit}, 5_000)
 
   def mark_outbox_published(event_id),
-    do: GenServer.call(__MODULE__, {:mark_outbox_published, event_id}, 1_000)
+    do: GenServer.call(__MODULE__, {:mark_outbox_published, event_id}, 5_000)
 
   def begin_consumption(event_id, event_type, payload),
-    do: GenServer.call(__MODULE__, {:begin_consumption, event_id, event_type, payload}, 1_000)
+    do: GenServer.call(__MODULE__, {:begin_consumption, event_id, event_type, payload}, 5_000)
 
   def complete_consumption(event_id, status, error \\ nil),
-    do: GenServer.call(__MODULE__, {:complete_consumption, event_id, status, error}, 1_000)
+    do: GenServer.call(__MODULE__, {:complete_consumption, event_id, status, error}, 5_000)
 
   def next_consumption_attempt(event_id, error \\ nil),
     do: GenServer.call(__MODULE__, {:next_consumption_attempt, event_id, error}, 1_000)
@@ -133,43 +133,70 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
         Application.get_env(:discordia_signaling, :voice_events, [])[:database_url] ||
           Application.get_env(:discordia_signaling, :replica, [])[:database_url] ||
           "postgres://discordia:discordia@localhost:5432/discordia_voice",
-      conn: nil
+      conn: nil,
+      ready: false
     }
 
-    send(self(), :connect)
-    {:ok, state}
+    {:ok, state, {:continue, :connect}}
   end
 
   @impl true
-  def handle_info(:connect, %{conn: nil} = state) do
-    case Postgrex.start_link(connection_options(state.url)) do
-      {:ok, conn} ->
-        case ensure_schema(conn) do
-          :ok ->
-            Process.monitor(conn)
-            Logger.info("voice_replica_database_connected")
-            {:noreply, %{state | conn: conn}}
-
-          {:error, reason} ->
-            close(conn)
-            Logger.warning("voice_replica_database_schema_failed", reason: inspect(reason))
-            Process.send_after(self(), :connect, 1_000)
-            {:noreply, state}
-        end
-
-      {:error, reason} ->
-        Logger.warning("voice_replica_database_connect_failed", reason: inspect(reason))
-        Process.send_after(self(), :connect, 1_000)
-        {:noreply, state}
-    end
-  end
+  def handle_continue(:connect, state), do: start_database_connect(state)
 
   @impl true
+  def handle_info(:connect, %{conn: nil} = state), do: start_database_connect(state)
+
+  def handle_info({:database_connected, conn}, state) do
+    Process.link(conn)
+    Process.monitor(conn)
+    Logger.info("voice_replica_database_connected")
+    {:noreply, %{state | conn: conn, ready: true}}
+  end
+
+  def handle_info({:database_connect_failed, reason}, state) do
+    Logger.warning("voice_replica_database_connect_failed", reason: inspect(reason))
+    Process.send_after(self(), :connect, 1_000)
+    {:noreply, %{state | conn: nil, ready: false}}
+  end
+
+  def handle_info({:database_schema_failed, reason}, state) do
+    Logger.warning("voice_replica_database_schema_failed", reason: inspect(reason))
+    Process.send_after(self(), :connect, 1_000)
+    {:noreply, %{state | conn: nil, ready: false}}
+  end
+
   def handle_info({:DOWN, _ref, :process, _pid, reason}, state) do
     Logger.warning("voice_replica_database_down", reason: inspect(reason))
     send(self(), :connect)
-    {:noreply, %{state | conn: nil}}
+    {:noreply, Map.merge(state, %{conn: nil, ready: false})}
   end
+
+  defp start_database_connect(state) do
+    store = self()
+
+    Task.start(fn ->
+      case Postgrex.start_link(connection_options(state.url)) do
+        {:ok, conn} ->
+          case ensure_schema(conn) do
+            :ok ->
+              Process.unlink(conn)
+              send(store, {:database_connected, conn})
+
+            {:error, reason} ->
+              close(conn)
+              send(store, {:database_schema_failed, reason})
+          end
+
+        {:error, reason} ->
+          send(store, {:database_connect_failed, reason})
+      end
+    end)
+
+    {:noreply, Map.put(state, :ready, false)}
+  end
+
+  def handle_call(_message, _from, %{ready: false} = state),
+    do: {:reply, {:error, :not_ready}, state}
 
   @impl true
   def handle_call(:ping, _from, %{conn: nil} = state), do: {:reply, {:error, :unavailable}, state}

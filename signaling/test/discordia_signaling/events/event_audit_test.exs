@@ -17,6 +17,11 @@ defmodule DiscordiaSignaling.Events.EventAuditTest do
       end
     end
 
+    defmodule ExitingStore do
+      def begin_consumption(_event_id, _event_type, _payload), do: exit(:store_starting)
+      def complete_consumption(_event_id, _status, _error), do: exit(:store_starting)
+    end
+
     def complete_consumption(event_id, status, error) do
       send(self(), {:audit_completed, event_id, status, error})
       Application.get_env(:discordia_signaling, :test_audit_complete, :ok)
@@ -65,6 +70,17 @@ defmodule DiscordiaSignaling.Events.EventAuditTest do
 
   test "retries when the audit database is unavailable" do
     Application.put_env(:discordia_signaling, :test_audit_begin, {:error, :unavailable})
+
+    assert :retry =
+             EventAudit.process("voice.participant_joined", valid_payload(), fn -> :ack end)
+  end
+
+  test "retries instead of exiting when the audit store is not ready" do
+    Application.put_env(
+      :discordia_signaling,
+      :voice_event_store,
+      DiscordiaSignaling.Events.EventAuditTest.Store.ExitingStore
+    )
 
     assert :retry =
              EventAudit.process("voice.participant_joined", valid_payload(), fn -> :ack end)

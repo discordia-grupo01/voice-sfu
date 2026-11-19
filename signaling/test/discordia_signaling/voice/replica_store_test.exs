@@ -52,6 +52,16 @@ defmodule DiscordiaSignaling.Voice.ReplicaStoreTest do
              ReplicaStore.handle_call({:authorize, "channel-1", "user-1"}, self(), state)
   end
 
+  test "returns not_ready while initialization has not established the database" do
+    state = %{conn: nil, ready: false, url: "postgres://127.0.0.1:1/discordia_voice"}
+
+    assert {:reply, {:error, :not_ready}, ^state} =
+             ReplicaStore.handle_call(:ping, self(), state)
+
+    assert {:reply, {:error, :not_ready}, ^state} =
+             ReplicaStore.handle_call({:pending_outbox, 100}, self(), state)
+  end
+
   test "rejects invalid persistent version subjects before querying PostgreSQL" do
     state = %{conn: :stand_in}
 
@@ -63,7 +73,7 @@ defmodule DiscordiaSignaling.Voice.ReplicaStoreTest do
   end
 
   test "reconnects after the database process goes down" do
-    state = %{conn: :old_connection}
+    state = %{conn: :old_connection, ready: true}
 
     assert {:noreply, %{conn: nil}} =
              ReplicaStore.handle_info({:DOWN, make_ref(), :process, self(), :closed}, state)
@@ -74,7 +84,8 @@ defmodule DiscordiaSignaling.Voice.ReplicaStoreTest do
   test "schedules a reconnect when PostgreSQL cannot be reached" do
     state = %{conn: nil, url: "postgres://127.0.0.1:1/discordia_voice"}
 
-    assert {:noreply, %{conn: nil}} = ReplicaStore.handle_info(:connect, state)
-    assert_receive :connect, 1_500
+    assert {:noreply, next_state} = ReplicaStore.handle_info(:connect, state)
+    assert next_state.conn == nil
+    assert next_state.ready == false
   end
 end

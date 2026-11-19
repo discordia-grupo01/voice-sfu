@@ -13,13 +13,13 @@ defmodule DiscordiaSignaling.Application do
     children =
       [
         log_shipper_child(),
+        DiscordiaSignaling.Voice.ReplicaStore,
         {Phoenix.PubSub, name: DiscordiaSignaling.PubSub},
         DiscordiaSignaling.Voice.VoicePresencePublisher,
         DiscordiaSignaling.CircuitBreaker,
         DiscordiaSignaling.Voice.VoiceSessionRegistry,
         DiscordiaSignaling.Voice.PrivateCall,
         DiscordiaSignaling.Voice.MembershipCache,
-        DiscordiaSignaling.Voice.ReplicaStore,
         DiscordiaSignaling.Voice.VoicePresenceReconciler,
         presence_consumer(),
         event_consumer(),
@@ -29,7 +29,12 @@ defmodule DiscordiaSignaling.Application do
       ]
       |> Enum.reject(&is_nil/1)
 
-    opts = [strategy: :one_for_one, name: DiscordiaSignaling.Supervisor]
+    opts = [
+      strategy: :one_for_one,
+      max_restarts: 20,
+      max_seconds: 60,
+      name: DiscordiaSignaling.Supervisor
+    ]
 
     with {:ok, supervisor} <- Supervisor.start_link(children, opts) do
       Logger.info("service_started",
