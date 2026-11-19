@@ -1,6 +1,7 @@
 defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
   @moduledoc "Applies participant and room controls to LiveKit rooms."
 
+  alias DiscordiaSignaling.CircuitBreaker
   alias DiscordiaSignaling.Voice.ScreenShare
 
   @receive_timeout 4_000
@@ -100,12 +101,14 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
     body = Jason.encode!(body)
     headers = [{~c"authorization", String.to_charlist("Bearer " <> token)}]
 
-    case :httpc.request(
-           :post,
-           {String.to_charlist(config.url <> path), headers, ~c"application/json", body},
-           [{:timeout, @receive_timeout}],
-           body_format: :binary
-         ) do
+    case CircuitBreaker.call({:livekit, CircuitBreaker.endpoint(config.url)}, fn ->
+           :httpc.request(
+             :post,
+             {String.to_charlist(config.url <> path), headers, ~c"application/json", body},
+             [{:timeout, @receive_timeout}],
+             body_format: :binary
+           )
+         end) do
       {:ok, {{_, 200, _}, _headers, response_body}} when decode_response? ->
         Jason.decode(response_body)
 

@@ -2,6 +2,7 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
   use Phoenix.Controller, formats: [:json]
   use OpenApiSpex.ControllerSpecs
 
+  alias DiscordiaSignaling.CircuitBreaker
   alias DiscordiaSignaling.Voice.{MembershipCache, VoiceSessionRegistry}
   alias DiscordiaSignalingWeb.ApiError
   alias DiscordiaSignalingWeb.Schemas
@@ -102,7 +103,9 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
 
     # Without a timeout, a slow servers API leaves this request hanging until the
     # web BFF gives up (10 s) and the user sees a 502.
-    case :httpc.request(:get, {url, headers}, @servers_http_options, body_format: :binary) do
+    case CircuitBreaker.call({:servers_api, CircuitBreaker.endpoint(url)}, fn ->
+           :httpc.request(:get, {url, headers}, @servers_http_options, body_format: :binary)
+         end) do
       {:ok, {{_, 200, _}, _headers, _body}} -> :ok
       {:ok, {{_, status, _}, _headers, _body}} when status >= 500 -> :unavailable
       {:ok, _response} -> :forbidden

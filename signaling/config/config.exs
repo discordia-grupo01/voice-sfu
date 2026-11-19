@@ -13,6 +13,9 @@ config :phoenix, :json_library, Jason
 config :logger, :console,
   format: {DiscordiaSignaling.Log.JSONFormatter, :format},
   metadata: [
+    :breaker,
+    :from,
+    :to,
     :request_id,
     :user_id,
     :server_id,

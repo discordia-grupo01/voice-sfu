@@ -10,6 +10,7 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
   """
 
   @uuid_pattern ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  alias DiscordiaSignaling.CircuitBreaker
   alias DiscordiaSignaling.Voice.{ReplicaPermissions, ReplicaStore}
 
   @spec authorize(String.t(), String.t(), String.t() | nil) ::
@@ -89,9 +90,11 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
     url = String.to_charlist(base_url <> "/v1/channels/" <> channel_id <> "/voice-access")
     headers = [{~c"authorization", String.to_charlist(authorization_header)}]
 
-    case :httpc.request(:get, {url, headers}, [connect_timeout: 2_000, timeout: 4_000],
-           body_format: :binary
-         ) do
+    case CircuitBreaker.call({:servers_api, CircuitBreaker.endpoint(url)}, fn ->
+           :httpc.request(:get, {url, headers}, [connect_timeout: 2_000, timeout: 4_000],
+             body_format: :binary
+           )
+         end) do
       {:ok, {{_, 200, _}, _headers, body}} ->
         case Jason.decode(body) do
           {:ok, %{"allowed" => true} = response} ->
@@ -267,9 +270,11 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
   defp request_private_contact(url, authorization_header) do
     headers = [{~c"authorization", String.to_charlist(authorization_header)}]
 
-    case :httpc.request(:get, {url, headers}, [connect_timeout: 2_000, timeout: 4_000],
-           body_format: :binary
-         ) do
+    case CircuitBreaker.call({:servers_api, CircuitBreaker.endpoint(url)}, fn ->
+           :httpc.request(:get, {url, headers}, [connect_timeout: 2_000, timeout: 4_000],
+             body_format: :binary
+           )
+         end) do
       {:ok, {{_, 200, _}, _headers, body}} ->
         case Jason.decode(body) do
           {:ok, %{"allowed" => true} = response} ->
