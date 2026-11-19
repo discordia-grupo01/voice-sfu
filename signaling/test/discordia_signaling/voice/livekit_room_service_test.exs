@@ -137,6 +137,47 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomServiceTest do
     refute_received {:stub_request, _method, _path, _headers}
   end
 
+  test "the readiness ping reports LiveKit as it is, without going through the circuit" do
+    url = DiscordiaSignaling.StubHTTP.start(status: 503, notify: self())
+    previous = Application.get_env(:discordia_signaling, :livekit)
+
+    Application.put_env(:discordia_signaling, :livekit,
+      api_key: "test-key",
+      api_secret: "test-secret",
+      url: url
+    )
+
+    on_exit(fn -> restore_livekit_config(previous) end)
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      for _ <- 1..8, do: assert({:error, :unavailable} = LiveKitRoomService.ping())
+    end)
+
+    for _ <- 1..8, do: assert_received({:stub_request, "POST", _path, _headers})
+  end
+
+  test "the readiness ping is not held back by an open circuit" do
+    url = DiscordiaSignaling.StubHTTP.start(status: 503, notify: self())
+    previous = Application.get_env(:discordia_signaling, :livekit)
+
+    Application.put_env(:discordia_signaling, :livekit,
+      api_key: "test-key",
+      api_secret: "test-secret",
+      url: url
+    )
+
+    on_exit(fn -> restore_livekit_config(previous) end)
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      for _ <- 1..5,
+          do: LiveKitRoomService.remove_participant("room-1", "user-1")
+    end)
+
+    for _ <- 1..5, do: assert_received({:stub_request, "POST", _path, _headers})
+    assert {:error, :unavailable} = LiveKitRoomService.ping()
+    assert_received {:stub_request, "POST", "/twirp/livekit.RoomService/ListRooms", _headers}
+  end
+
   test "client errors from LiveKit do not open the circuit" do
     url = DiscordiaSignaling.StubHTTP.start(status: 404, notify: self())
     previous = Application.get_env(:discordia_signaling, :livekit)

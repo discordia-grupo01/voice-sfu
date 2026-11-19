@@ -9,7 +9,8 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
   @spec ping() :: :ok | {:error, atom()}
   def ping do
     with {:ok, config} <- livekit_config(),
-         {:ok, _rooms} <- request_json(config, "/twirp/livekit.RoomService/ListRooms", %{}) do
+         {:ok, _rooms} <-
+           request_json(config, "/twirp/livekit.RoomService/ListRooms", %{}, false) do
       :ok
     end
   end
@@ -80,11 +81,12 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
 
   # ListRooms uses the account-level roomList grant. Room-scoped operations
   # use roomAdmin, and DeleteRoom also needs roomCreate.
-  defp request(config, path, body), do: request(config, path, body, false)
+  defp request(config, path, body), do: request(config, path, body, false, true)
 
-  defp request_json(config, path, body), do: request(config, path, body, true)
+  defp request_json(config, path, body, guarded? \\ true),
+    do: request(config, path, body, true, guarded?)
 
-  defp request(config, path, body, decode_response?) do
+  defp request(config, path, body, decode_response?, guarded?) do
     now = System.system_time(:second)
 
     claims = %{
@@ -101,14 +103,7 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
     body = Jason.encode!(body)
     headers = [{~c"authorization", String.to_charlist("Bearer " <> token)}]
 
-    case CircuitBreaker.call({:livekit, CircuitBreaker.endpoint(config.url)}, fn ->
-           :httpc.request(
-             :post,
-             {String.to_charlist(config.url <> path), headers, ~c"application/json", body},
-             [{:timeout, @receive_timeout}],
-             body_format: :binary
-           )
-         end) do
+    case post(config, path, headers, body, guarded?) do
       {:ok, {{_, 200, _}, _headers, response_body}} when decode_response? ->
         Jason.decode(response_body)
 
@@ -133,6 +128,21 @@ defmodule DiscordiaSignaling.Voice.LiveKitRoomService do
       _ ->
         {:error, :unavailable}
     end
+  end
+
+  defp post(config, path, headers, body, true) do
+    CircuitBreaker.call({:livekit, CircuitBreaker.endpoint(config.url)}, fn ->
+      post(config, path, headers, body, false)
+    end)
+  end
+
+  defp post(config, path, headers, body, false) do
+    :httpc.request(
+      :post,
+      {String.to_charlist(config.url <> path), headers, ~c"application/json", body},
+      [{:timeout, @receive_timeout}],
+      body_format: :binary
+    )
   end
 
   defp video_grant("/twirp/livekit.RoomService/ListRooms", _body),
