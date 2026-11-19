@@ -18,10 +18,15 @@ defmodule DiscordiaSignaling.Log.TelemetryTest do
   end
 
   defp entries(fun) do
-    [level: :debug]
+    [level: :debug, colors: [enabled: false]]
     |> capture_log(fun)
+    |> strip_ansi()
     |> String.split("\n", trim: true)
     |> Enum.map(&Jason.decode!/1)
+  end
+
+  defp strip_ansi(text) when is_binary(text) do
+    String.replace(text, ~r/\e\[[0-9;]*[a-zA-Z]/, "")
   end
 
   defp stop(conn, duration_ms \\ 12) do

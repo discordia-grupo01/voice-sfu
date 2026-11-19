@@ -28,7 +28,21 @@ defmodule DiscordiaSignalingWeb.RequestLoggingTest do
 
   @channel "550e8400-e29b-41d4-a716-446655440000"
 
-  defp entries(log), do: log |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+  defp entries(log) do
+    log
+    |> strip_ansi()
+    |> String.split("\n", trim: true)
+    |> Enum.map(&Jason.decode!/1)
+  end
+
+  defp strip_ansi(text) when is_binary(text) do
+    String.replace(text, ~r/\e\[[0-9;]*[a-zA-Z]/, "")
+  end
+
+  defp capture(fun) do
+    capture_log([level: :debug, colors: [enabled: false]], fun)
+    |> strip_ansi()
+  end
 
   defp token_request(query \\ "") do
     conn(:post, "/api/voice/token" <> query, Jason.encode!(%{"channel_id" => @channel}))
@@ -38,7 +52,7 @@ defmodule DiscordiaSignalingWeb.RequestLoggingTest do
   end
 
   test "a real request is logged with its route pattern and who made it" do
-    log = capture_log([level: :debug], fn -> token_request() end)
+    log = capture(fn -> token_request() end)
 
     assert %{
              "route" => "/api/voice/token",
@@ -49,7 +63,7 @@ defmodule DiscordiaSignalingWeb.RequestLoggingTest do
   end
 
   test "neither the query string nor the issued token reach the logs" do
-    log = capture_log([level: :debug], fn -> token_request("?ticket=SECRET-TICKET") end)
+    log = capture(fn -> token_request("?ticket=SECRET-TICKET") end)
 
     refute log =~ "SECRET-TICKET"
     refute log =~ "eyJ"
@@ -57,7 +71,7 @@ defmodule DiscordiaSignalingWeb.RequestLoggingTest do
   end
 
   test "the request id travels with the line of the request" do
-    log = capture_log([level: :debug], fn -> token_request() end)
+    log = capture(fn -> token_request() end)
 
     assert %{"request_id" => id} = Enum.find(entries(log), &(&1["message"] == "http_request"))
     assert is_binary(id)
@@ -65,7 +79,7 @@ defmodule DiscordiaSignalingWeb.RequestLoggingTest do
 
   test "an unknown route is logged without its path" do
     log =
-      capture_log([level: :debug], fn ->
+      capture(fn ->
         conn(:get, "/no/existe/#{@channel}") |> Endpoint.call([])
       end)
 
@@ -76,7 +90,7 @@ defmodule DiscordiaSignalingWeb.RequestLoggingTest do
   end
 
   test "no line is plain text: everything the request writes is JSON" do
-    log = capture_log([level: :debug], fn -> token_request() end)
+    log = capture(fn -> token_request() end)
 
     assert log != ""
 

@@ -18,7 +18,6 @@ RUN mix compile
 RUN mix release
 
 # --- Etapa 2: Runner ---
-# --- Etapa 2: Runner ---
 FROM elixir:1.17.3-otp-27-alpine AS app
 
 WORKDIR /app
@@ -26,7 +25,7 @@ WORKDIR /app
 ENV MIX_ENV=prod
 ENV PORT=4000
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates iptables iproute2
 
 COPY --from=builder /app/_build/prod/rel/discordia_signaling ./
 

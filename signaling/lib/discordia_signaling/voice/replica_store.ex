@@ -450,6 +450,10 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
     end)
   end
 
+  @external_resource Path.expand("../../../priv/certs/supabase-ca.crt", __DIR__)
+  @supabase_ca_pem File.read!(Path.expand("../../../priv/certs/supabase-ca.crt", __DIR__))
+  @extra_ca_certs Enum.map(:public_key.pem_decode(@supabase_ca_pem), &elem(&1, 1))
+
   defp connection_options(url) do
     uri = URI.parse(url)
     query = URI.decode_query(uri.query || "")
@@ -481,6 +485,7 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
     |> maybe_put(:username, username)
     |> maybe_put(:password, password)
     |> Keyword.merge(postgres_ssl(sslmode, uri.host))
+    |> Keyword.merge(ip_family_options(uri.host))
   end
 
   defp maybe_put(options, _key, nil), do: options
@@ -491,13 +496,19 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
   end
 
   defp postgres_ssl("disable", _host), do: []
+
+  # "require" valida el certificado igual que "verify-full": cifrar sin validar
+  # deja la conexion expuesta a un intermediario.
   defp postgres_ssl("require", host), do: postgres_ssl("verify-full", host)
 
+  # Confia en el bundle del sistema y en la CA de Supabase, que no esta en ese bundle.
+  # La CA se incrusta al compilar desde priv/certs/supabase-ca.crt (ruta fija, sin
+  # leer rutas en tiempo de ejecucion).
   defp postgres_ssl("verify-full", host) do
     [
       ssl: [
         verify: :verify_peer,
-        cacerts: :public_key.cacerts_get(),
+        cacerts: :public_key.cacerts_get() ++ extra_ca_certs(),
         server_name_indication: String.to_charlist(host || "localhost"),
         customize_hostname_check: [
           match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
@@ -507,6 +518,21 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
   end
 
   defp postgres_ssl(_unknown, host), do: postgres_ssl(default_sslmode(host), host)
+
+  defp extra_ca_certs, do: @extra_ca_certs
+
+  # db.<ref>.supabase.co solo tiene IPv6: sin :inet6 el connect falla con nxdomain.
+  defp ip_family_options(nil), do: []
+
+  defp ip_family_options(host) do
+    charlist = String.to_charlist(host)
+
+    cond do
+      match?({:ok, _}, :inet.getaddr(charlist, :inet)) -> []
+      match?({:ok, _}, :inet.getaddr(charlist, :inet6)) -> [socket_options: [:inet6]]
+      true -> []
+    end
+  end
 
   defp apply_in_transaction(tx, routing_key, event) do
     try do

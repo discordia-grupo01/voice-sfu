@@ -81,7 +81,7 @@ defmodule DiscordiaSignaling.Voice.VoiceAccessTest do
     System.put_env("VOICE_AUTHZ_MODE", "replica")
     Application.delete_env(:discordia_signaling, :test_replica_muted)
 
-    assert {:ok, _room, _name, true, _server_id} =
+    assert {:ok, _room, _name, true} =
              VoiceAccess.authorize_with_permissions(
                "user-1",
                "550e8400-e29b-41d4-a716-446655440000"
@@ -92,10 +92,20 @@ defmodule DiscordiaSignaling.Voice.VoiceAccessTest do
     System.put_env("VOICE_AUTHZ_MODE", "replica")
     Application.put_env(:discordia_signaling, :test_replica_muted, true)
 
-    assert {:ok, _room, _name, false, _server_id} =
+    assert {:ok, _room, _name, false} =
              VoiceAccess.authorize_with_permissions(
                "user-1",
                "550e8400-e29b-41d4-a716-446655440000"
              )
+  end
+
+  test "authorizes room and display name in replica mode" do
+    System.put_env("VOICE_AUTHZ_MODE", "replica")
+
+    assert {:ok, "voice:550e8400-e29b-41d4-a716-446655440000"} =
+             VoiceAccess.authorize("user-1", "550e8400-e29b-41d4-a716-446655440000")
+
+    assert {:ok, "voice:550e8400-e29b-41d4-a716-446655440000", "Member"} =
+             VoiceAccess.authorize_with_name("user-1", "550e8400-e29b-41d4-a716-446655440000")
   end
 end
