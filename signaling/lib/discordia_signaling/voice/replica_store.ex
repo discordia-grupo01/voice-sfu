@@ -450,6 +450,10 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
     end)
   end
 
+  @external_resource Path.expand("../../../priv/certs/supabase-ca.crt", __DIR__)
+  @supabase_ca_pem File.read!(Path.expand("../../../priv/certs/supabase-ca.crt", __DIR__))
+  @extra_ca_certs Enum.map(:public_key.pem_decode(@supabase_ca_pem), &elem(&1, 1))
+
   defp connection_options(url) do
     uri = URI.parse(url)
     query = URI.decode_query(uri.query || "")
@@ -497,8 +501,9 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
   # deja la conexion expuesta a un intermediario.
   defp postgres_ssl("require", host), do: postgres_ssl("verify-full", host)
 
-  # Confia en el bundle del sistema y en las CA extra: DATABASE_CA_CERTFILE, o
-  # priv/certs/*.crt (ahi va la CA de Supabase, que no esta en el bundle del sistema).
+  # Confia en el bundle del sistema y en la CA de Supabase, que no esta en ese bundle.
+  # La CA se incrusta al compilar desde priv/certs/supabase-ca.crt (ruta fija, sin
+  # leer rutas en tiempo de ejecucion).
   defp postgres_ssl("verify-full", host) do
     [
       ssl: [
@@ -514,29 +519,7 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
 
   defp postgres_ssl(_unknown, host), do: postgres_ssl(default_sslmode(host), host)
 
-  defp extra_ca_certs do
-    files =
-      case System.get_env("DATABASE_CA_CERTFILE") do
-        file when file not in [nil, ""] ->
-          [file]
-
-        _ ->
-          :discordia_signaling
-          |> Application.app_dir("priv/certs")
-          |> Path.join("*.crt")
-          |> Path.wildcard()
-      end
-
-    Enum.flat_map(files, fn file ->
-      case File.read(file) do
-        {:ok, pem} ->
-          for {:Certificate, der, :not_encrypted} <- :public_key.pem_decode(pem), do: der
-
-        {:error, _} ->
-          []
-      end
-    end)
-  end
+  defp extra_ca_certs, do: @extra_ca_certs
 
   # db.<ref>.supabase.co solo tiene IPv6: sin :inet6 el connect falla con nxdomain.
   defp ip_family_options(nil), do: []
