@@ -99,6 +99,43 @@ defmodule DiscordiaSignalingWeb.VoiceSessionControllerTest do
     DiscordiaSignaling.TestHelpers.assert_error(response, "VOICE_UNAVAILABLE")
   end
 
+  defmodule ReplicaStoreStub do
+    def authorize(_channel_id, _user_id) do
+      {:ok,
+       [
+         "server-1",
+         "voice",
+         "owner-1",
+         ["role-1"],
+         %{"role-1" => %{"permissions" => ["CONNECT"], "is_everyone" => false}},
+         %{},
+         nil,
+         "Member"
+       ]}
+    end
+  end
+
+  test "is idempotent when the user has no active session under replica authz mode" do
+    System.put_env("VOICE_AUTHZ_MODE", "replica")
+    previous_store = Application.get_env(:discordia_signaling, :replica_store)
+    Application.put_env(:discordia_signaling, :replica_store, ReplicaStoreStub)
+
+    on_exit(fn ->
+      if previous_store do
+        Application.put_env(:discordia_signaling, :replica_store, previous_store)
+      else
+        Application.delete_env(:discordia_signaling, :replica_store)
+      end
+    end)
+
+    response =
+      VoiceSessionController.delete(authenticated_conn("session-controller-user"), %{
+        "channel_id" => @channel_id
+      })
+
+    assert response.status == 204
+  end
+
   defp authenticated_conn(user_id) do
     Plug.Conn.assign(conn(:delete, "/api/voice/session"), :current_user_id, user_id)
   end

@@ -41,14 +41,26 @@ defmodule DiscordiaSignalingWeb.VoiceSessionController do
              VoiceSessionRegistry.active_room(user_id) == room_name do
           VoiceSessionRegistry.leave(user_id, room_name)
         else
-          with {:ok, authorized_room} <-
-                 VoiceAccess.authorize(user_id, channel_id, authorization_header) do
-            VoiceSessionRegistry.leave(user_id, authorized_room)
+          case VoiceAccess.authorize(user_id, channel_id, authorization_header) do
+            {:ok, authorized_room} ->
+              VoiceSessionRegistry.leave(user_id, authorized_room)
+
+            {:ok, authorized_room, _name, _can_publish} ->
+              VoiceSessionRegistry.leave(user_id, authorized_room)
+
+            {:ok, authorized_room, _name, _can_publish, _server_id} ->
+              VoiceSessionRegistry.leave(user_id, authorized_room)
+
+            error ->
+              error
           end
         end
 
       case result do
         :ok ->
+          Plug.Conn.send_resp(conn, 204, "")
+
+        {:ok, _} ->
           Plug.Conn.send_resp(conn, 204, "")
 
         {:error, :not_found} ->

@@ -21,6 +21,8 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
       when is_binary(user_id) and user_id != "" and is_binary(channel_id) and channel_id != "" do
     case authorize_with_permissions(user_id, channel_id, authorization_header) do
       {:ok, room_name, _name, _can_publish} -> {:ok, room_name}
+      {:ok, room_name, _name, _can_publish, _server_id} -> {:ok, room_name}
+      {:ok, room_name} -> {:ok, room_name}
       error -> error
     end
   end
@@ -32,6 +34,7 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
   def authorize_with_name(user_id, channel_id, authorization_header \\ nil) do
     case authorize_with_permissions(user_id, channel_id, authorization_header) do
       {:ok, room_name, name, _can_publish} -> {:ok, room_name, name}
+      {:ok, room_name, name, _can_publish, _server_id} -> {:ok, room_name, name}
       error -> error
     end
   end
@@ -57,7 +60,16 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
           end
 
         mode when mode in ["replica", "replica_shadow"] ->
-          authorize_with_replica(user_id, channel_id, mode, authorization_header)
+          case authorize_with_replica(user_id, channel_id, mode, authorization_header) do
+            {:ok, room_name, name, can_publish, _server_id} ->
+              {:ok, room_name, name, can_publish}
+
+            {:ok, room_name, name, can_publish} ->
+              {:ok, room_name, name, can_publish}
+
+            error ->
+              error
+          end
 
         _ ->
           {:error, :not_configured}
@@ -118,30 +130,35 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
   end
 
   defp authorize_with_replica(user_id, channel_id, "replica", _authorization_header) do
-    case replica_store().authorize(channel_id, user_id) do
-      {:ok, [server_id, "voice", owner_id, role_ids, roles, overrides, muted, name]} ->
-        permissions =
-          ReplicaPermissions.effective(
-            owner_id == user_id,
-            decode_json(role_ids, []),
-            decode_json(roles, %{}),
-            decode_json(overrides, %{})
-          )
+    try do
+      case replica_store().authorize(channel_id, user_id) do
+        {:ok, [server_id, "voice", owner_id, role_ids, roles, overrides, muted, name]} ->
+          permissions =
+            ReplicaPermissions.effective(
+              owner_id == user_id,
+              decode_json(role_ids, []),
+              decode_json(roles, %{}),
+              decode_json(overrides, %{})
+            )
 
-        if ReplicaPermissions.can?(permissions, "CONNECT") do
-          {:ok, room_name(channel_id), profile_name(name, user_id), muted != true, server_id}
-        else
+          if ReplicaPermissions.can?(permissions, "CONNECT") do
+            {:ok, room_name(channel_id), profile_name(name, user_id), muted != true, server_id}
+          else
+            {:error, :forbidden}
+          end
+
+        {:ok, _row} ->
           {:error, :forbidden}
-        end
 
-      {:ok, _row} ->
-        {:error, :forbidden}
+        {:error, :unavailable} ->
+          {:error, :not_configured}
 
-      {:error, :unavailable} ->
+        {:error, _reason} ->
+          {:error, :forbidden}
+      end
+    catch
+      :exit, {:timeout, _} ->
         {:error, :not_configured}
-
-      {:error, _reason} ->
-        {:error, :forbidden}
     end
   end
 

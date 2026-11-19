@@ -10,7 +10,47 @@ config :discordia_signaling, DiscordiaSignalingWeb.Endpoint,
 
 config :phoenix, :json_library, Jason
 
+config :logger,
+  colors: [enabled: false]
+
+config :logger, :default_formatter,
+  colors: [enabled: false],
+  format: {DiscordiaSignaling.Log.JSONFormatter, :format},
+  metadata: [
+    :breaker,
+    :from,
+    :to,
+    :request_id,
+    :user_id,
+    :server_id,
+    :channel_id,
+    :topic,
+    :event,
+    :result,
+    :transport,
+    :method,
+    :route,
+    :status,
+    :duration_ms,
+    :routing_key,
+    :event_id,
+    :exchange,
+    :queue,
+    :attempt,
+    :attempts,
+    :retry_in_ms,
+    :rooms_closed,
+    :reason,
+    :failed,
+    :hint,
+    :version,
+    :log_level,
+    :trace_id,
+    :span_id
+  ]
+
 config :logger, :console,
+  colors: [enabled: false],
   format: {DiscordiaSignaling.Log.JSONFormatter, :format},
   metadata: [
     :breaker,

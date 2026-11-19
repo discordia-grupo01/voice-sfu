@@ -481,6 +481,7 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
     |> maybe_put(:username, username)
     |> maybe_put(:password, password)
     |> Keyword.merge(postgres_ssl(sslmode, uri.host))
+    |> Keyword.merge(ip_family_options(uri.host))
   end
 
   defp maybe_put(options, _key, nil), do: options
@@ -492,30 +493,56 @@ defmodule DiscordiaSignaling.Voice.ReplicaStore do
 
   defp postgres_ssl("disable", _host), do: []
 
-  defp postgres_ssl("require", host), do: postgres_ssl("verify-full", host)
-
-  defp postgres_ssl("verify-full", host) do
-    cacertfile =
-      System.get_env(
-        "DATABASE_CA_CERTFILE",
-        "/etc/ssl/cert.pem"
-      )
-
+  # Igual que libpq: "require" cifra la conexion pero no valida el certificado.
+  # Los poolers de Supabase firman con una CA propia que no esta en el bundle
+  # del sistema, asi que verificar por defecto los dejaba sin conexion.
+  defp postgres_ssl("require", host) do
     [
       ssl: [
-        verify: :verify_peer,
-        cacertfile: String.to_charlist(cacertfile),
-        server_name_indication: String.to_charlist(host || "localhost"),
-        customize_hostname_check: [
-          match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
-        ]
+        verify: :verify_none,
+        server_name_indication: String.to_charlist(host || "localhost")
       ]
+    ]
+  end
+
+  # Verificacion completa, solo si se pide con DATABASE_SSLMODE=verify-full.
+  # DATABASE_CA_CERTFILE permite indicar la CA del proveedor.
+  defp postgres_ssl("verify-full", host) do
+    ca =
+      case System.get_env("DATABASE_CA_CERTFILE") do
+        file when file not in [nil, ""] ->
+          [cacertfile: String.to_charlist(file)]
+
+        _ ->
+          [cacerts: :public_key.cacerts_get()]
+      end
+
+    [
+      ssl:
+        [
+          verify: :verify_peer,
+          server_name_indication: String.to_charlist(host || "localhost"),
+          customize_hostname_check: [
+            match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
+          ]
+        ] ++ ca
     ]
   end
 
   defp postgres_ssl(_unknown, host), do: postgres_ssl(default_sslmode(host), host)
 
-  defp postgres_ssl(_unknown, host), do: postgres_ssl(default_sslmode(host), host)
+  # db.<ref>.supabase.co solo tiene IPv6: sin :inet6 el connect falla con nxdomain.
+  defp ip_family_options(nil), do: []
+
+  defp ip_family_options(host) do
+    charlist = String.to_charlist(host)
+
+    cond do
+      match?({:ok, _}, :inet.getaddr(charlist, :inet)) -> []
+      match?({:ok, _}, :inet.getaddr(charlist, :inet6)) -> [socket_options: [:inet6]]
+      true -> []
+    end
+  end
 
   defp apply_in_transaction(tx, routing_key, event) do
     try do

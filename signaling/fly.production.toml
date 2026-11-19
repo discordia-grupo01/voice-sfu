@@ -27,7 +27,12 @@ primary_region = "gru"
 
   [[services.http_checks]]
     interval = "10s"
-    timeout = "2s"
+    timeout = "5s"
     grace_period = "15s"
     method = "get"
     path = "/livez"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpus = 1
