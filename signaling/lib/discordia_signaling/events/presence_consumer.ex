@@ -32,14 +32,16 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
 
   @impl true
   def init(opts) do
-    state = %{
-      url: Keyword.fetch!(opts, :rabbitmq_url),
-      exchange: Keyword.get(opts, :exchange, @default_exchange),
-      queue: Keyword.get(opts, :queue, "voice.signaling.presence"),
-      connection: nil,
-      channel: nil,
-      attempts: %{}
-    }
+    state =
+      %{
+        url: Keyword.fetch!(opts, :rabbitmq_url),
+        exchange: Keyword.get(opts, :exchange, @default_exchange),
+        queue: Keyword.get(opts, :queue, "voice.signaling.presence"),
+        connection: nil,
+        channel: nil,
+        attempts: %{}
+      }
+      |> DiscordiaSignaling.Backoff.init()
 
     send(self(), :connect)
     {:ok, state}
@@ -51,7 +53,13 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
       {:ok, connection, channel, queue} ->
         Process.monitor(connection.pid)
         Logger.info("voice_presence_consumer_connected", queue: queue)
-        {:noreply, %{state | connection: connection, channel: channel, queue: queue}}
+
+        state =
+          state
+          |> DiscordiaSignaling.Backoff.reset()
+          |> Map.merge(%{connection: connection, channel: channel, queue: queue})
+
+        {:noreply, state}
 
       {:error, reason} ->
         Logger.warning("voice_presence_consumer_connect_failed",
@@ -59,8 +67,9 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
           exchange: state.exchange
         )
 
-        Process.send_after(self(), :connect, 1_000)
-        {:noreply, state}
+        {delay, new_state} = DiscordiaSignaling.Backoff.next_delay(state)
+        Process.send_after(self(), :connect, delay)
+        {:noreply, new_state}
     end
   end
 

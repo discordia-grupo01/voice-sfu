@@ -126,20 +126,49 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   defp normalize_error({:error, _} = error), do: error
   defp normalize_error(other), do: {:error, other}
 
-  defp do_publish(chan, payload) do
-    {:ok, event} = Jason.decode(payload)
-    Contract.check(event["event_type"], event)
+  defp decode_payload(raw) when is_binary(raw) do
+    case Jason.decode(raw) do
+      {:ok, %{} = event} ->
+        {:ok, event, raw}
 
-    AMQP.Basic.publish(
-      chan,
-      exchange(),
-      event["event_type"],
-      payload,
-      persistent: true,
-      content_type: "application/json"
-    )
+      {:ok, inner} when is_binary(inner) ->
+        decode_payload(inner)
+
+      other ->
+        {:error, {:invalid_outbox_payload, other}}
+    end
+  end
+
+  defp decode_payload(raw), do: {:error, {:invalid_outbox_payload, {:invalid_json, raw}}}
+
+  defp do_publish(chan, payload) do
+    with {:ok, %{"event_type" => type} = event, published_payload}
+         when is_binary(type) <- decode_payload(payload) do
+      Contract.check(type, event)
+
+      AMQP.Basic.publish(
+        chan,
+        exchange(),
+        type,
+        published_payload,
+        persistent: true,
+        content_type: "application/json"
+      )
+    else
+      {:ok, _, _} ->
+        {:error, {:invalid_outbox_payload, :missing_event_type}}
+
+      {:error, _} = error ->
+        error
+    end
   catch
-    kind, reason -> {:error, {kind, reason}}
+    kind, reason ->
+      Logger.error("voice_presence_publish_crash",
+        reason: inspect({kind, reason}),
+        stacktrace: Exception.format_stacktrace(__STACKTRACE__)
+      )
+
+      {:error, {kind, reason}}
   end
 
   defp disconnect(%{conn: nil} = state), do: state
