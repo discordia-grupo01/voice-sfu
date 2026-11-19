@@ -26,7 +26,7 @@ defmodule DiscordiaSignaling.Events.EventAudit do
           do: "processed",
           else: if(result == :invalid, do: "invalid", else: "failed")
 
-      case event_store().complete_consumption(event_id, status, error(result)) do
+      case safe_complete(event_id, status, error(result)) do
         :ok -> result_to_ack(result)
         {:error, _reason} -> :retry
       end
@@ -37,11 +37,23 @@ defmodule DiscordiaSignaling.Events.EventAudit do
   end
 
   defp begin(event_id, routing_key, payload) do
-    case event_store().begin_consumption(event_id, routing_key, payload) do
+    case safe_begin(event_id, routing_key, payload) do
       :new -> {:new, event_id}
       :processed -> {:processed, event_id}
       result -> result
     end
+  end
+
+  defp safe_begin(event_id, routing_key, payload) do
+    event_store().begin_consumption(event_id, routing_key, payload)
+  catch
+    :exit, _reason -> {:error, :replica_unavailable}
+  end
+
+  defp safe_complete(event_id, status, error) do
+    event_store().complete_consumption(event_id, status, error)
+  catch
+    :exit, _reason -> {:error, :replica_unavailable}
   end
 
   defp normalize(:ack), do: :ack

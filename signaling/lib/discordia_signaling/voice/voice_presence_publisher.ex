@@ -65,13 +65,13 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   def handle_info(:drain, %{chan: nil} = state), do: {:noreply, state}
 
   def handle_info(:drain, state) do
-    case event_store().pending_outbox(100) do
+    case safe_pending_outbox(100) do
       {:ok, events} ->
         next_state =
           Enum.reduce_while(events, state, fn event, acc ->
             case do_publish(acc.chan, event.payload) do
               :ok ->
-                case event_store().mark_outbox_published(event.event_id) do
+                case safe_mark_outbox_published(event.event_id) do
                   :ok -> {:cont, acc}
                   {:error, reason} -> {:halt, disconnect_and_retry(acc, reason)}
                 end
@@ -206,6 +206,18 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
     event_store().enqueue_outbox(event)
   catch
     :exit, reason -> {:error, reason}
+  end
+
+  defp safe_pending_outbox(limit) do
+    event_store().pending_outbox(limit)
+  catch
+    :exit, _reason -> {:error, :replica_unavailable}
+  end
+
+  defp safe_mark_outbox_published(event_id) do
+    event_store().mark_outbox_published(event_id)
+  catch
+    :exit, _reason -> {:error, :replica_unavailable}
   end
 
   defp broker_url do
