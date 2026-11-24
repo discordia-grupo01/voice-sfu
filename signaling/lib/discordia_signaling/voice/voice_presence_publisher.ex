@@ -10,6 +10,7 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
   @min_backoff 1_000
   @max_backoff 30_000
   @drain_interval 1_000
+  @confirm_timeout_ms 5_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -109,7 +110,8 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
 
     with {:ok, conn} <- RabbitMQ.open(url) do
       with {:ok, chan} <- AMQP.Channel.open(conn),
-           :ok <- AMQP.Exchange.declare(chan, exchange(), :topic, durable: true) do
+           :ok <- AMQP.Exchange.declare(chan, exchange(), :topic, durable: true),
+           :ok <- AMQP.Confirm.select(chan) do
         {:ok, conn, chan}
       else
         error ->
@@ -146,14 +148,17 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
          when is_binary(type) <- decode_payload(payload) do
       Contract.check(type, event)
 
-      AMQP.Basic.publish(
-        chan,
-        exchange(),
-        type,
-        published_payload,
-        persistent: true,
-        content_type: "application/json"
-      )
+      with :ok <-
+             AMQP.Basic.publish(
+               chan,
+               exchange(),
+               type,
+               published_payload,
+               persistent: true,
+               content_type: "application/json"
+             ) do
+        confirmed(AMQP.Confirm.wait_for_confirms(chan, @confirm_timeout_ms))
+      end
     else
       {:ok, _, _} ->
         {:error, {:invalid_outbox_payload, :missing_event_type}}
@@ -170,6 +175,13 @@ defmodule DiscordiaSignaling.Voice.VoicePresencePublisher do
 
       {:error, {kind, reason}}
   end
+
+  # Sin la confirmación del broker, publish/5 solo dice que el mensaje salió por
+  # el socket: marcarlo como publicado en el outbox podría perder el evento.
+  @doc false
+  def confirmed(true), do: :ok
+  def confirmed(false), do: {:error, :not_confirmed}
+  def confirmed(:timeout), do: {:error, :confirm_timeout}
 
   defp disconnect(%{conn: nil} = state), do: state
 
