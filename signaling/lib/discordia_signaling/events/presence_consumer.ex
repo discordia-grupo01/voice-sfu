@@ -140,6 +140,7 @@ defmodule DiscordiaSignaling.Events.PresenceConsumer do
          {:ok, _} <- AMQP.Queue.declare(channel, state.queue, durable: true),
          :ok <- DeadLetter.declare(channel, state.queue),
          :ok <- bind(channel, state.queue, state.exchange),
+         :ok <- AMQP.Basic.qos(channel, prefetch_count: 10),
          {:ok, _} <- AMQP.Basic.consume(channel, state.queue) do
       {:ok, connection, channel, state.queue}
     end
