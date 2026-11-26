@@ -265,11 +265,11 @@ defmodule DiscordiaSignaling.Voice.VoiceAccess do
       url =
         base_url <>
           "/v1/voice-access/" <>
-          URI.encode(recipient_id)
+          URI.encode_www_form(recipient_id)
 
       url =
         if is_binary(conversation_id) and conversation_id != "" do
-          url <> "?conversation_id=" <> URI.encode(conversation_id)
+          url <> "?conversation_id=" <> URI.encode_www_form(conversation_id)
         else
           url
         end

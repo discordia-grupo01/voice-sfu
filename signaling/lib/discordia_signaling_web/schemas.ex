@@ -147,6 +147,8 @@ defmodule DiscordiaSignalingWeb.Schemas do
         recipient_id: %Schema{
           type: :string,
           minLength: 1,
+          maxLength: 64,
+          pattern: "^[A-Za-z0-9_-]+$",
           description: "Usuario al que se llama."
         },
         conversation_id: %Schema{
