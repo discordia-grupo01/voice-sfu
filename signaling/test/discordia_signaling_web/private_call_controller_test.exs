@@ -54,6 +54,29 @@ defmodule DiscordiaSignalingWeb.PrivateCallControllerTest do
     assert DiscordiaSignaling.TestHelpers.assert_error(conn, "INVALID_BODY")
   end
 
+  test "rejects a recipient id that is not a plain user id" do
+    for recipient_id <- ["x/y?z=1#f", "../secret", "\u00bf[", "a b", "", String.duplicate("a", 65)] do
+      conn =
+        request("caller-bad-recipient")
+        |> Plug.Conn.put_req_header("authorization", "Bearer token")
+
+      conn = PrivateCallController.create(conn, %{"recipient_id" => recipient_id})
+
+      assert conn.status == 400, "recipient_id #{inspect(recipient_id)} answered #{conn.status}"
+      assert DiscordiaSignaling.TestHelpers.assert_error(conn, "INVALID_BODY")
+    end
+  end
+
+  test "rejects a recipient id that is not a string" do
+    conn =
+      request("caller-numeric-recipient")
+      |> Plug.Conn.put_req_header("authorization", "Bearer token")
+
+    conn = PrivateCallController.create(conn, %{"recipient_id" => 123})
+
+    assert conn.status == 400
+  end
+
   test "rejects a non-string conversation id" do
     conn =
       request("caller-invalid-conversation")
