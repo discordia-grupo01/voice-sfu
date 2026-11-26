@@ -109,7 +109,9 @@ components:
           x-validate:
         recipient_id:
           description: Usuario al que se llama.
+          maxLength: 64
           minLength: 1
+          pattern: ^[A-Za-z0-9_-]+$
           type: string
           x-struct:
           x-validate:
