@@ -92,6 +92,28 @@ defmodule DiscordiaSignalingWeb.VoicePresenceControllerTest do
     VoiceSessionRegistry.leave("presence-second", "voice:room-1")
   end
 
+  test "counts the 64 characters of a server id, not its bytes" do
+    server_id = "0" <> String.duplicate("\u{10000}", 16)
+
+    conn =
+      VoicePresenceController.index(
+        conn(:get, "/api/voice/participants"),
+        %{"server_id" => server_id}
+      )
+
+    assert conn.status == 200
+  end
+
+  test "rejects a server id longer than the documented 64 characters" do
+    conn =
+      VoicePresenceController.index(
+        conn(:get, "/api/voice/participants"),
+        %{"server_id" => String.duplicate("a", 65)}
+      )
+
+    assert conn.status == 400
+  end
+
   test "rejects a request without a server id" do
     conn = VoicePresenceController.index(conn(:get, "/api/voice/participants"), %{})
 

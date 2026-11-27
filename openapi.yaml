@@ -453,6 +453,7 @@ paths:
           name: id
           required: true
           schema:
+            maxLength: 64
             type: string
             x-struct:
             x-validate:
@@ -515,6 +516,7 @@ paths:
           name: id
           required: true
           schema:
+            maxLength: 64
             type: string
             x-struct:
             x-validate:
@@ -567,6 +569,7 @@ paths:
           name: id
           required: true
           schema:
+            maxLength: 64
             type: string
             x-struct:
             x-validate:
@@ -619,6 +622,7 @@ paths:
           name: id
           required: true
           schema:
+            maxLength: 64
             type: string
             x-struct:
             x-validate:
@@ -681,6 +685,7 @@ paths:
           name: server_id
           required: true
           schema:
+            maxLength: 64
             minLength: 1
             type: string
             x-struct:
@@ -697,7 +702,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-          description: Falta server_id (INVALID_BODY)
+          description: Falta server_id o supera los 64 caracteres (INVALID_BODY)
         '401':
           content:
             application/json:
