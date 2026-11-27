@@ -25,6 +25,30 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
     :ok
   end
 
+  test "authorizing a call does not block the other calls being started" do
+    Application.put_env(
+      :discordia_signaling,
+      :private_call_authorizer,
+      DiscordiaSignaling.Voice.PrivateCallTest.SlowAuthorizer
+    )
+
+    started = System.monotonic_time(:millisecond)
+
+    results =
+      1..8
+      |> Enum.map(fn n ->
+        Task.async(fn ->
+          PrivateCall.start("slow-caller-#{n}", "slow-recipient-#{n}", nil, "Bearer token")
+        end)
+      end)
+      |> Task.await_many(5_000)
+
+    elapsed = System.monotonic_time(:millisecond) - started
+
+    assert Enum.all?(results, &match?({:ok, _call}, &1))
+    assert elapsed < 1_000, "8 slow authorizations took #{elapsed} ms: they ran one after another"
+  end
+
   test "starts a ringing call and notifies the recipient" do
     Phoenix.PubSub.subscribe(DiscordiaSignaling.PubSub, "voice_user:recipient-1")
 
@@ -365,4 +389,17 @@ defmodule DiscordiaSignaling.Voice.PrivateCallTest do
 
   defp restore(key, nil), do: Application.delete_env(:discordia_signaling, key)
   defp restore(key, value), do: Application.put_env(:discordia_signaling, key, value)
+end
+
+defmodule DiscordiaSignaling.Voice.PrivateCallTest.SlowAuthorizer do
+  def authorize_private_contact(user_id, recipient_id, _conversation_id, _authorization_header) do
+    Process.sleep(200)
+
+    {:ok,
+     %{
+       user_id: user_id,
+       recipient_id: recipient_id,
+       conversation_id: "550e8400-e29b-41d4-a716-446655440001"
+     }}
+  end
 end
