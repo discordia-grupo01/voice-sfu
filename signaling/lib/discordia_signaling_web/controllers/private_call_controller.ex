@@ -82,7 +82,13 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
     description:
       "Quien acepta recibe sus credenciales de LiveKit; quien llamó recibe las suyas por el evento `private_call_accepted` del socket `voice_user:<user_id>`.",
     security: [%{"bearerAuth" => []}],
-    parameters: [id: [in: :path, description: "Identificador de la llamada", type: :string]],
+    parameters: [
+      id: [
+        in: :path,
+        description: "Identificador de la llamada",
+        schema: %OpenApiSpex.Schema{type: :string, maxLength: 64}
+      ]
+    ],
     responses: [
       ok:
         {"Credenciales de LiveKit de la llamada aceptada", "application/json",
@@ -120,7 +126,13 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
     description:
       "Igual que /api/voice/screen-token pero para una llamada privada. Solo lo recibe un participante de una llamada activa.",
     security: [%{"bearerAuth" => []}],
-    parameters: [id: [in: :path, description: "Identificador de la llamada", type: :string]],
+    parameters: [
+      id: [
+        in: :path,
+        description: "Identificador de la llamada",
+        schema: %OpenApiSpex.Schema{type: :string, maxLength: 64}
+      ]
+    ],
     responses: [
       ok: {"Token emitido", "application/json", Schemas.ScreenToken},
       unauthorized:
@@ -154,7 +166,13 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
     description:
       "El destinatario la rechaza, o quien llamó la cancela antes de que la atiendan. Ambos reciben `private_call_rejected`.",
     security: [%{"bearerAuth" => []}],
-    parameters: [id: [in: :path, description: "Identificador de la llamada", type: :string]],
+    parameters: [
+      id: [
+        in: :path,
+        description: "Identificador de la llamada",
+        schema: %OpenApiSpex.Schema{type: :string, maxLength: 64}
+      ]
+    ],
     responses: [
       no_content: "Llamada rechazada",
       unauthorized:
@@ -179,7 +197,13 @@ defmodule DiscordiaSignalingWeb.PrivateCallController do
     summary: "Termina una llamada activa",
     description: "Ambos participantes reciben `private_call_ended` con motivo `hangup`.",
     security: [%{"bearerAuth" => []}],
-    parameters: [id: [in: :path, description: "Identificador de la llamada", type: :string]],
+    parameters: [
+      id: [
+        in: :path,
+        description: "Identificador de la llamada",
+        schema: %OpenApiSpex.Schema{type: :string, maxLength: 64}
+      ]
+    ],
     responses: [
       no_content: "Llamada terminada",
       unauthorized:

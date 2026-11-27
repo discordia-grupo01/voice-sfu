@@ -18,13 +18,15 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
       server_id: [
         in: :query,
         description: "Servidor del que se piden los participantes",
-        schema: %OpenApiSpex.Schema{type: :string, minLength: 1},
+        schema: %OpenApiSpex.Schema{type: :string, minLength: 1, maxLength: 64},
         required: true
       ]
     ],
     responses: [
       ok: {"Presencia por canal", "application/json", Schemas.Presence},
-      bad_request: {"Falta server_id (INVALID_BODY)", "application/json", Schemas.ErrorResponse},
+      bad_request:
+        {"Falta server_id o supera los 64 caracteres (INVALID_BODY)", "application/json",
+         Schemas.ErrorResponse},
       unauthorized:
         {"Falta el Bearer o es inválido (UNAUTHORIZED)", "application/json",
          Schemas.ErrorResponse},
@@ -39,7 +41,20 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
 
   @servers_http_options [connect_timeout: 2_000, timeout: 4_000]
 
-  def index(conn, %{"server_id" => server_id}) when is_binary(server_id) and server_id != "" do
+  def index(conn, %{"server_id" => server_id})
+      when is_binary(server_id) and server_id != "" do
+    if length(String.codepoints(server_id)) > 64 do
+      ApiError.send_error(conn, :invalid_body, %{field: "server_id", reason: "too_long"})
+    else
+      authorize_and_list(conn, server_id)
+    end
+  end
+
+  def index(conn, _params) do
+    ApiError.send_error(conn, :invalid_body, %{field: "server_id", reason: "required"})
+  end
+
+  defp authorize_and_list(conn, server_id) do
     authorization_header = List.first(Plug.Conn.get_req_header(conn, "authorization"))
 
     case authorize_server(conn, server_id, authorization_header) do
@@ -59,10 +74,6 @@ defmodule DiscordiaSignalingWeb.VoicePresenceController do
       :unavailable ->
         ApiError.send_error(conn, :voice_unavailable)
     end
-  end
-
-  def index(conn, _params) do
-    ApiError.send_error(conn, :invalid_body, %{field: "server_id", reason: "required"})
   end
 
   defp channels_response(participants, starts) do

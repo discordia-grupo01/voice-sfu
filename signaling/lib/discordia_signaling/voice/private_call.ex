@@ -26,24 +26,39 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
     do: GenServer.start_link(__MODULE__, %{}, Keyword.put_new(opts, :name, __MODULE__))
 
   def start(caller_id, recipient_id, conversation_id, authorization_header) do
-    GenServer.call(
-      __MODULE__,
-      {:start, caller_id, recipient_id, conversation_id, authorization_header}
-    )
+    with :ok <- validate_ids(caller_id, recipient_id),
+         :ok <- validate_conversation(conversation_id),
+         {:ok, details} <-
+           authorize_contact(caller_id, recipient_id, conversation_id, authorization_header) do
+      call_server({:start, caller_id, recipient_id, conversation_id, details})
+    end
   end
 
-  def accept(call_id, user_id, authorization_header),
-    do: GenServer.call(__MODULE__, {:accept, call_id, user_id, authorization_header})
+  def accept(call_id, user_id, authorization_header) do
+    with {:ok, call} <- fetch(call_id),
+         :ok <- require_participant(call, user_id),
+         :ok <- require_status(call, :ringing),
+         {:ok, _details} <-
+           authorize_contact(user_id, call.caller_id, call.conversation_id, authorization_header) do
+      call_server({:accept, call_id, user_id})
+    end
+  end
 
-  def reject(call_id, user_id), do: GenServer.call(__MODULE__, {:reject, call_id, user_id})
-  def finish(call_id, user_id), do: GenServer.call(__MODULE__, {:finish, call_id, user_id})
+  def reject(call_id, user_id), do: call_server({:reject, call_id, user_id})
+  def finish(call_id, user_id), do: call_server({:finish, call_id, user_id})
   def get(call_id), do: GenServer.call(__MODULE__, {:get, call_id})
   def replicate_event(event), do: GenServer.call(__MODULE__, {:replicate_event, event})
 
   def reconcile(participants), do: GenServer.call(__MODULE__, {:reconcile, participants})
 
   def screen_share_token(call_id, user_id),
-    do: GenServer.call(__MODULE__, {:screen_share_token, call_id, user_id})
+    do: call_server({:screen_share_token, call_id, user_id})
+
+  defp call_server(message) do
+    GenServer.call(__MODULE__, message)
+  catch
+    :exit, {:timeout, _call} -> {:error, :unavailable}
+  end
 
   @impl true
   def init(state) do
@@ -52,11 +67,8 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
   end
 
   @impl true
-  def handle_call({:start, caller, recipient, conversation, auth}, _from, state) do
-    with :ok <- validate_ids(caller, recipient),
-         :ok <- validate_conversation(conversation),
-         {:ok, details} <- authorize_contact(caller, recipient, conversation, auth),
-         {:ok, resolved_conversation} <- resolve_conversation(conversation, details),
+  def handle_call({:start, caller, recipient, conversation, details}, _from, state) do
+    with {:ok, resolved_conversation} <- resolve_conversation(conversation, details),
          :ok <- no_active_call(caller, recipient) do
       call_id = call_id()
 
@@ -81,17 +93,10 @@ defmodule DiscordiaSignaling.Voice.PrivateCall do
     end
   end
 
-  def handle_call({:accept, call_id, user_id, authorization_header}, _from, state) do
+  def handle_call({:accept, call_id, user_id}, _from, state) do
     with {:ok, call} <- fetch(call_id),
          :ok <- require_participant(call, user_id),
          :ok <- require_status(call, :ringing),
-         {:ok, _details} <-
-           authorize_contact(
-             user_id,
-             call.caller_id,
-             call.conversation_id,
-             authorization_header
-           ),
          {:ok, token} <- token_for(call, user_id),
          {:ok, caller_token} <- token_for(call, call.caller_id) do
       accepted = %{call | status: :active}
